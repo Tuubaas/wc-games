@@ -1,3 +1,4 @@
+import { Calendar, Database, ListChecks, RefreshCcw, ShieldAlert, Trophy } from "lucide-react";
 import {
   addTopScorerResultAction,
   createPlayerAction,
@@ -12,6 +13,12 @@ import { TOURNAMENT_ID } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { requireSiteAdmin } from "@/lib/session";
 import { formatDateTime } from "@/lib/time";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input, ScoreInput, Select } from "@/components/ui/input";
+import { EmptyState, PageHeader } from "@/components/ui/section";
+import { TeamFlag } from "@/components/ui/team-flag";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +38,10 @@ export default async function AdminPage() {
       orderBy: { kickoffAt: "asc" }
     }),
     prisma.team.findMany({ orderBy: { name: "asc" } }),
-    prisma.player.findMany({ include: { team: true }, orderBy: [{ team: { name: "asc" } }, { name: "asc" }] }),
+    prisma.player.findMany({
+      include: { team: true },
+      orderBy: [{ team: { name: "asc" } }, { name: "asc" }]
+    }),
     prisma.tournamentResult.findUnique({
       where: { id: TOURNAMENT_ID },
       include: { topScorers: { include: { player: { include: { team: true } } } } }
@@ -41,163 +51,264 @@ export default async function AdminPage() {
   const topScorers = tournamentResult?.topScorers ?? [];
 
   return (
-    <main className="page stack">
-      <div>
-        <p className="eyebrow">Site owner</p>
-        <h1>Admin</h1>
-      </div>
-
-      <section className="panel split">
-        <form action={syncResultsAction}>
-          <button className="button" type="submit">
-            Sync now
-          </button>
-        </form>
-        <form action={recalculateAllAction}>
-          <button className="secondary-button" type="submit">
-            Recalculate points
-          </button>
-        </form>
-      </section>
-
-      <section className="panel stack">
-        <h2>Tournament result</h2>
-        <form className="tiny-form" action={setTournamentWinnerAction}>
-          <select className="field" defaultValue={tournamentResult?.winnerTeamId ?? ""} name="winnerTeamId">
-            <option value="">Winner</option>
-            {teams.map((team) => (
-              <option key={team.id} value={team.id}>
-                {team.name}
-              </option>
-            ))}
-          </select>
-          <button className="secondary-button" type="submit">
-            Save
-          </button>
-        </form>
-        <form className="tiny-form" action={addTopScorerResultAction}>
-          <select className="field" name="playerId" required>
-            <option value="">Top scorer</option>
-            {players.map((player) => (
-              <option key={player.id} value={player.id}>
-                {player.name} · {player.team.name}
-              </option>
-            ))}
-          </select>
-          <button className="secondary-button" type="submit">
-            Add
-          </button>
-        </form>
-        <div className="stack">
-          {topScorers.map((item) => (
-            <form className="row" action={removeTopScorerResultAction.bind(null, item.playerId)} key={item.id}>
-              <span>
-                {item.player.name} · {item.player.team.name}
-              </span>
-              <button className="danger-button" type="submit">
-                Remove
-              </button>
+    <main className="mx-auto max-w-7xl px-5 py-10">
+      <PageHeader
+        eyebrow="Site admin"
+        title={
+          <span className="flex items-center gap-3">
+            <ShieldAlert size={22} className="text-[--color-accent]" />
+            Admin console
+          </span>
+        }
+        description="Sync external results, edit fixtures, and manage tournament outcomes."
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <form action={syncResultsAction}>
+              <Button type="submit" size="sm">
+                <RefreshCcw size={13} />
+                Sync now
+              </Button>
             </form>
-          ))}
-        </div>
-      </section>
+            <form action={recalculateAllAction}>
+              <Button type="submit" variant="secondary" size="sm">
+                <ListChecks size={13} />
+                Recalculate points
+              </Button>
+            </form>
+          </div>
+        }
+      />
 
-      <section className="panel stack">
-        <h2>Fixtures/results</h2>
-        <div className="admin-grid">
-          {matches.map((match) => (
-            <form className="row" action={updateMatchResultAction.bind(null, match.id)} key={match.id}>
-              <span>
-                <strong>
-                  {match.homeTeam?.name ?? "TBD"} vs {match.awayTeam?.name ?? "TBD"}
-                </strong>
-                <br />
-                <span className="meta">{formatDateTime(match.kickoffAt)}</span>
-              </span>
-              <span className="tiny-form">
-                <select className="field" defaultValue={match.status} name="status">
-                  {MATCH_STATUS_OPTIONS.map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
+      <div className="mt-10 grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Trophy size={15} className="text-[--color-gold]" />
+              <CardTitle>Tournament result</CardTitle>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-5">
+            <div>
+              <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[--color-faint]">
+                Winner
+              </p>
+              <form
+                action={setTournamentWinnerAction}
+                className="flex flex-col gap-2 sm:flex-row"
+              >
+                <Select
+                  defaultValue={tournamentResult?.winnerTeamId ?? ""}
+                  name="winnerTeamId"
+                  className="flex-1"
+                >
+                  <option value="">Select winner</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
                     </option>
                   ))}
-                </select>
-                <input
-                  aria-label="Home score"
-                  className="score-input"
-                  defaultValue={match.homeScore90 ?? ""}
-                  max={30}
-                  min={0}
-                  name="homeScore90"
-                  type="number"
-                />
-                <input
-                  aria-label="Away score"
-                  className="score-input"
-                  defaultValue={match.awayScore90 ?? ""}
-                  max={30}
-                  min={0}
-                  name="awayScore90"
-                  type="number"
-                />
-                <button className="secondary-button" type="submit">
+                </Select>
+                <Button type="submit" variant="secondary">
                   Save
-                </button>
-              </span>
-            </form>
-          ))}
-        </div>
-      </section>
-
-      <section className="grid two">
-        <div className="panel stack">
-          <h2>Teams</h2>
-          <form className="tiny-form" action={createTeamAction}>
-            <input className="field" name="name" placeholder="Country" required />
-            <input className="field" name="fifaCode" placeholder="Code" />
-            <button className="secondary-button" type="submit">
-              Add
-            </button>
-          </form>
-          <p>{teams.length} teams</p>
-        </div>
-
-        <div className="panel stack">
-          <h2>Players</h2>
-          <form className="tiny-form" action={createPlayerAction}>
-            <input className="field" name="name" placeholder="Player" required />
-            <select className="field" name="teamId" required>
-              <option value="">Team</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-            <button className="secondary-button" type="submit">
-              Add
-            </button>
-          </form>
-          <p>{players.length} players</p>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Sync log</h2>
-        <div className="stack">
-          {logs.map((log) => (
-            <div className="row" key={log.id}>
-              <span>
-                <strong>{log.status}</strong>
-                <br />
-                <span className="meta">{formatDateTime(log.createdAt)}</span>
-              </span>
-              <span>{log.message}</span>
+                </Button>
+              </form>
             </div>
-          ))}
-          {logs.length === 0 ? <p>No syncs yet.</p> : null}
-        </div>
-      </section>
+
+            <div>
+              <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[--color-faint]">
+                Top scorers
+              </p>
+              <form
+                action={addTopScorerResultAction}
+                className="flex flex-col gap-2 sm:flex-row"
+              >
+                <Select name="playerId" required className="flex-1">
+                  <option value="">Add scorer</option>
+                  {players.map((player) => (
+                    <option key={player.id} value={player.id}>
+                      {player.name} · {player.team.name}
+                    </option>
+                  ))}
+                </Select>
+                <Button type="submit" variant="secondary">
+                  Add
+                </Button>
+              </form>
+              {topScorers.length > 0 ? (
+                <div className="mt-3 space-y-1.5">
+                  {topScorers.map((item) => (
+                    <form
+                      key={item.id}
+                      action={removeTopScorerResultAction.bind(null, item.playerId)}
+                      className="flex items-center justify-between rounded-md bg-[--color-surface-2] px-3 py-2"
+                    >
+                      <span className="text-sm">
+                        {item.player.name}{" "}
+                        <span className="text-[--color-muted]">
+                          · {item.player.team.name}
+                        </span>
+                      </span>
+                      <Button type="submit" variant="ghost" size="sm" className="text-[--color-faint] hover:text-[--color-danger]">
+                        Remove
+                      </Button>
+                    </form>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database size={15} className="text-[--color-muted]" />
+              <CardTitle>Sync log</CardTitle>
+            </div>
+            <Badge tone="muted">Last 5</Badge>
+          </CardHeader>
+          <CardBody className="!px-0 !pb-0">
+            {logs.length === 0 ? (
+              <div className="px-5 pb-5">
+                <EmptyState>No syncs yet.</EmptyState>
+              </div>
+            ) : (
+              <div className="divide-y divide-[--color-border] border-t border-[--color-border]">
+                {logs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="flex items-center justify-between gap-3 px-5 py-3"
+                  >
+                    <div>
+                      <Badge tone={log.status === "OK" ? "accent" : "danger"}>
+                        {log.status}
+                      </Badge>
+                      <p className="mt-1 text-xs text-[--color-muted]">{log.message}</p>
+                    </div>
+                    <span className="font-mono text-xs text-[--color-faint]">
+                      {formatDateTime(log.createdAt)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Calendar size={15} className="text-[--color-muted]" />
+            <CardTitle>Fixtures / results</CardTitle>
+          </div>
+          <Badge tone="muted">{matches.length} matches</Badge>
+        </CardHeader>
+        <CardBody className="!px-0 !pb-0">
+          <div className="divide-y divide-[--color-border] border-t border-[--color-border]">
+            {matches.map((match) => (
+              <form
+                key={match.id}
+                action={updateMatchResultAction.bind(null, match.id)}
+                className="grid grid-cols-1 gap-3 px-5 py-3 lg:grid-cols-[1fr_auto] lg:items-center"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <TeamFlag team={match.homeTeam} size="sm" />
+                  <span className="truncate text-sm">
+                    {match.homeTeam?.name ?? "TBD"}
+                  </span>
+                  <span className="text-xs text-[--color-faint]">vs</span>
+                  <span className="truncate text-sm">
+                    {match.awayTeam?.name ?? "TBD"}
+                  </span>
+                  <TeamFlag team={match.awayTeam} size="sm" />
+                  <span className="ml-3 font-mono text-xs text-[--color-faint]">
+                    {formatDateTime(match.kickoffAt)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Select
+                    defaultValue={match.status}
+                    name="status"
+                    className="w-36"
+                  >
+                    {MATCH_STATUS_OPTIONS.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </Select>
+                  <ScoreInput
+                    aria-label="Home score"
+                    defaultValue={match.homeScore90 ?? ""}
+                    max={30}
+                    min={0}
+                    name="homeScore90"
+                  />
+                  <span className="text-[--color-faint]">–</span>
+                  <ScoreInput
+                    aria-label="Away score"
+                    defaultValue={match.awayScore90 ?? ""}
+                    max={30}
+                    min={0}
+                    name="awayScore90"
+                  />
+                  <Button type="submit" variant="secondary" size="sm">
+                    Save
+                  </Button>
+                </div>
+              </form>
+            ))}
+          </div>
+        </CardBody>
+      </Card>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Teams</CardTitle>
+            <Badge tone="muted">{teams.length}</Badge>
+          </CardHeader>
+          <CardBody>
+            <form
+              action={createTeamAction}
+              className="flex flex-col gap-2 sm:flex-row"
+            >
+              <Input name="name" placeholder="Country" required className="flex-1" />
+              <Input name="fifaCode" placeholder="Code" className="sm:w-28" />
+              <Button type="submit" variant="secondary">
+                Add
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Players</CardTitle>
+            <Badge tone="muted">{players.length}</Badge>
+          </CardHeader>
+          <CardBody>
+            <form
+              action={createPlayerAction}
+              className="flex flex-col gap-2 sm:flex-row"
+            >
+              <Input name="name" placeholder="Player" required className="flex-1" />
+              <Select name="teamId" required className="sm:w-44">
+                <option value="">Team</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {team.name}
+                  </option>
+                ))}
+              </Select>
+              <Button type="submit" variant="secondary">
+                Add
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
+      </div>
     </main>
   );
 }

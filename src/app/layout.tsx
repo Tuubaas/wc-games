@@ -1,43 +1,40 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Trophy } from "lucide-react";
-import { signOutAction } from "@/lib/actions";
+import { Geist, Geist_Mono } from "next/font/google";
+import { isSiteAdmin } from "@/lib/config";
 import { getCurrentUser } from "@/lib/session";
+import { Topbar } from "@/components/nav/topbar";
 import "./globals.css";
 
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"]
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"]
+});
+
 export const metadata: Metadata = {
-  title: "World Cup Predictor",
-  description: "Private World Cup prediction leagues."
+  title: "World Cup 26 — Predictor",
+  description: "Private prediction leagues for the World Cup."
 };
 
 export default async function RootLayout({
   children
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser();
+  const showNav = Boolean(user?.username);
 
   return (
-    <html lang="en">
-      <body>
-        <header className="topbar">
-          <Link className="brand" href={user?.username ? "/dashboard" : "/"}>
-            <Trophy aria-hidden="true" size={22} />
-            <span>World Cup Predictor</span>
-          </Link>
-          {user?.username ? (
-            <nav className="nav">
-              <Link href="/dashboard">Home</Link>
-              <Link href="/matches">Matches</Link>
-              <Link href="/picks">Picks</Link>
-              <form action={signOutAction}>
-                <button className="link-button" type="submit">
-                  Sign out
-                </button>
-              </form>
-            </nav>
-          ) : null}
-        </header>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} dark`}>
+      <body className="font-sans">
+        {showNav ? (
+          <Topbar
+            username={user!.username as string}
+            isAdmin={isSiteAdmin(user!.email)}
+          />
+        ) : null}
         {children}
       </body>
     </html>
