@@ -18,8 +18,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "World Cup 26 — Predictor",
-  description: "Private prediction leagues for the World Cup."
+  title: "Tubets",
+  description: "Private prediction leagues for the 2026 World Cup."
 };
 
 export default async function RootLayout({

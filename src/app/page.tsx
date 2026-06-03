@@ -44,7 +44,7 @@ export default async function Home({
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[--color-accent] text-[--color-accent-fg]">
             <Sparkles size={15} strokeWidth={2.5} />
           </span>
-          World Cup<span className="text-[--color-muted]">/</span>26
+          Tubets
         </div>
         <span className="hidden text-xs text-[--color-muted] sm:block">
           North America · Jun 11 – Jul 19, 2026
@@ -123,7 +123,7 @@ export default async function Home({
       </section>
 
       <footer className="mx-auto max-w-6xl border-t border-[--color-border] px-6 py-8 text-xs text-[--color-faint]">
-        World Cup 26 Predictor · Not affiliated with FIFA
+        Tubets · Not affiliated with FIFA
       </footer>
     </main>
   );

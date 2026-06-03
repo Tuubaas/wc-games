@@ -1,4 +1,4 @@
-# World Cup Predictor
+# Tubets
 
 Next.js MVP for private World Cup prediction leagues.
 

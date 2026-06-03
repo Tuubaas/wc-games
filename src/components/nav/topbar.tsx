@@ -44,9 +44,7 @@ export function Topbar({
             <span className="relative inline-flex h-7 w-7 items-center justify-center rounded-md bg-[--color-accent] text-[--color-accent-fg] transition-transform group-hover:rotate-[8deg]">
               <Sparkles size={15} strokeWidth={2.5} />
             </span>
-            <span className="text-[15px]">
-              World Cup<span className="text-[--color-muted]">/</span>26
-            </span>
+            <span className="text-[15px]">Tubets</span>
           </Link>
 
           <nav className="hidden items-center gap-1 md:flex">
