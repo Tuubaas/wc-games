@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { ArrowRight, ShieldCheck, Users } from "lucide-react";
-import { auth } from "@/auth";
 import { joinLeagueAction, signInWithGoogleAction } from "@/lib/actions";
 import { prisma } from "@/lib/db";
+import { getCurrentUser } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 
@@ -20,13 +20,10 @@ export default async function JoinLeaguePage({
   });
   if (!league) redirect("/");
 
-  const session = await auth();
-  const isAuthed = Boolean(session?.user?.id);
+  const user = await getCurrentUser();
 
-  if (isAuthed) {
-    const user = await prisma.user.findUnique({ where: { id: session!.user!.id } });
-    if (!user?.username)
-      redirect(`/onboarding?next=${encodeURIComponent(`/join/${code}`)}`);
+  if (user) {
+    if (!user.username) redirect(`/onboarding?next=${encodeURIComponent(`/join/${code}`)}`);
     const isMember = league.members.some((member) => member.userId === user.id);
     if (isMember) redirect(`/leagues/${league.inviteCode}`);
   }
@@ -53,7 +50,7 @@ export default async function JoinLeaguePage({
               </p>
             </div>
 
-            {isAuthed ? (
+            {user ? (
               <form action={joinLeagueAction.bind(null, code)}>
                 <Button type="submit" size="lg" className="group w-full">
                   Join league

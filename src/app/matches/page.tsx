@@ -1,8 +1,9 @@
-import { Lock } from "lucide-react";
+import { ChevronDown, Lock } from "lucide-react";
 import { savePredictionAction } from "@/lib/actions";
 import { prisma } from "@/lib/db";
+import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireUser } from "@/lib/session";
-import { formatDateTime, isMatchLocked, matchLockTime } from "@/lib/time";
+import { formatMatchDayLabel, formatTime, isMatchLocked, matchLockTime } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
@@ -11,16 +12,6 @@ import { EmptyState, PageHeader } from "@/components/ui/section";
 import { TeamFlag } from "@/components/ui/team-flag";
 
 export const dynamic = "force-dynamic";
-
-const DAY_LABEL = new Intl.DateTimeFormat(undefined, {
-  weekday: "long",
-  month: "long",
-  day: "numeric"
-});
-const TIME_LABEL = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit"
-});
 
 function statusBadge(status: string) {
   switch (status) {
@@ -47,6 +38,7 @@ function statusBadge(status: string) {
 
 export default async function MatchesPage() {
   const user = await requireUser({ nextPath: "/matches" });
+  const timeZone = await getUserTimeZone();
   const matches = await prisma.match.findMany({
     include: {
       homeTeam: true,
@@ -58,7 +50,7 @@ export default async function MatchesPage() {
 
   const groups = new Map<string, typeof matches>();
   for (const match of matches) {
-    const day = DAY_LABEL.format(match.kickoffAt);
+    const day = formatMatchDayLabel(match.kickoffAt, timeZone);
     if (!groups.has(day)) groups.set(day, []);
     groups.get(day)!.push(match);
   }
@@ -68,7 +60,7 @@ export default async function MatchesPage() {
       <PageHeader
         eyebrow="Predictions"
         title="Matches"
-        description="Lock in your scores up to 30 minutes before kickoff. Outcome 3 pts · GD 5 pts · Exact 8 pts."
+        description="Lock in your scores up to 30 minutes before kickoff. Outcome 3 pts · team scores 1+1 pts · exact score bonus 3 pts."
       />
 
       {matches.length === 0 ? (
@@ -78,16 +70,20 @@ export default async function MatchesPage() {
       ) : (
         <div className="mt-10 space-y-10">
           {Array.from(groups.entries()).map(([day, dayMatches]) => (
-            <section key={day}>
-              <div className="mb-3 flex items-center gap-3">
+            <details key={day} open className="group">
+              <summary className="mb-3 flex cursor-pointer list-none items-center gap-3 rounded-md py-1 outline-none transition-colors hover:text-[--color-text] focus-visible:ring-2 focus-visible:ring-[--color-accent]/50 [&::-webkit-details-marker]:hidden">
+                <ChevronDown
+                  size={14}
+                  className="shrink-0 text-[--color-faint] transition-transform group-open:rotate-180"
+                />
                 <h2 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[--color-faint]">
                   {day}
                 </h2>
                 <div className="h-px flex-1 bg-[--color-border]" />
-                <span className="text-[11px] text-[--color-faint]">
+                <span className="shrink-0 text-[11px] text-[--color-faint]">
                   {dayMatches.length} {dayMatches.length === 1 ? "match" : "matches"}
                 </span>
-              </div>
+              </summary>
 
               <Card>
                 <CardBody className="divide-y divide-[--color-border] !px-0 !pb-0">
@@ -102,6 +98,7 @@ export default async function MatchesPage() {
                     return (
                       <div
                         key={match.id}
+                        data-testid={`match-${match.matchNumber ?? match.id}`}
                         className="grid grid-cols-1 gap-4 px-5 py-5 lg:grid-cols-[1fr_auto_auto] lg:items-center"
                       >
                         <div className="flex min-w-0 items-center gap-3">
@@ -138,7 +135,7 @@ export default async function MatchesPage() {
                             <Badge tone="muted">Group {match.groupName}</Badge>
                           ) : null}
                           <span className="font-mono">
-                            {TIME_LABEL.format(match.kickoffAt)}
+                            {formatTime(match.kickoffAt, timeZone)}
                           </span>
                           {locked && !finished ? (
                             <span className="inline-flex items-center gap-1 text-[--color-faint]">
@@ -146,13 +143,14 @@ export default async function MatchesPage() {
                             </span>
                           ) : !locked ? (
                             <span className="text-[--color-faint]">
-                              · locks {TIME_LABEL.format(matchLockTime(match.kickoffAt))}
+                              · locks {formatTime(matchLockTime(match.kickoffAt), timeZone)}
                             </span>
                           ) : null}
                         </div>
 
                         <form
                           action={saveAction}
+                          data-testid={`prediction-form-${match.matchNumber ?? match.id}`}
                           className="flex items-center justify-end gap-2"
                         >
                           {finished ? (
@@ -203,7 +201,7 @@ export default async function MatchesPage() {
                   })}
                 </CardBody>
               </Card>
-            </section>
+            </details>
           ))}
         </div>
       )}

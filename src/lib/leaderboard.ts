@@ -1,3 +1,5 @@
+import { prisma } from "@/lib/db";
+
 type PointRow = {
   id: string;
   username: string;
@@ -25,4 +27,33 @@ export function rankRows(rows: PointRow[]): RankedRow[] {
 
     return { ...row, rank: currentRank };
   });
+}
+
+export async function getUserPointTotals(userIds?: string[]) {
+  if (userIds?.length === 0) return new Map<string, number>();
+
+  const where = userIds ? { userId: { in: userIds } } : undefined;
+  const [predictionTotals, pickTotals] = await Promise.all([
+    prisma.prediction.groupBy({
+      by: ["userId"],
+      _sum: { points: true },
+      where
+    }),
+    prisma.tournamentPick.groupBy({
+      by: ["userId"],
+      _sum: { points: true },
+      where
+    })
+  ]);
+  const totals = new Map<string, number>();
+
+  for (const row of predictionTotals) {
+    totals.set(row.userId, (totals.get(row.userId) ?? 0) + (row._sum.points ?? 0));
+  }
+
+  for (const row of pickTotals) {
+    totals.set(row.userId, (totals.get(row.userId) ?? 0) + (row._sum.points ?? 0));
+  }
+
+  return totals;
 }

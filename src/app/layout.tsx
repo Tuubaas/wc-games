@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { isSiteAdmin } from "@/lib/config";
 import { getCurrentUser } from "@/lib/session";
 import { Topbar } from "@/components/nav/topbar";
+import { RoutePrefetcher } from "@/components/route-prefetcher";
+import { TimeZoneSync } from "@/components/time-zone-sync";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,14 +27,17 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser();
   const showNav = Boolean(user?.username);
+  const userIsAdmin = isSiteAdmin(user?.email);
 
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} dark`}>
       <body className="font-sans">
+        <TimeZoneSync />
+        {showNav ? <RoutePrefetcher isAdmin={userIsAdmin} /> : null}
         {showNav ? (
           <Topbar
             username={user!.username as string}
-            isAdmin={isSiteAdmin(user!.email)}
+            isAdmin={userIsAdmin}
           />
         ) : null}
         {children}

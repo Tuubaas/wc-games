@@ -1,4 +1,12 @@
-import { Calendar, Database, ListChecks, RefreshCcw, ShieldAlert, Trophy } from "lucide-react";
+import {
+  Calendar,
+  Database,
+  ListChecks,
+  RefreshCcw,
+  Save,
+  ShieldAlert,
+  Trophy
+} from "lucide-react";
 import {
   addTopScorerResultAction,
   createPlayerAction,
@@ -7,10 +15,11 @@ import {
   removeTopScorerResultAction,
   setTournamentWinnerAction,
   syncResultsAction,
-  updateMatchResultAction
+  updateAllMatchResultsAction
 } from "@/lib/actions";
 import { TOURNAMENT_ID } from "@/lib/config";
 import { prisma } from "@/lib/db";
+import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireSiteAdmin } from "@/lib/session";
 import { formatDateTime } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +41,7 @@ const MATCH_STATUS_OPTIONS = [
 
 export default async function AdminPage() {
   await requireSiteAdmin("/admin");
+  const timeZone = await getUserTimeZone();
   const [matches, teams, players, tournamentResult, logs] = await Promise.all([
     prisma.match.findMany({
       include: { homeTeam: true, awayTeam: true },
@@ -186,7 +196,7 @@ export default async function AdminPage() {
                       <p className="mt-1 text-xs text-[--color-muted]">{log.message}</p>
                     </div>
                     <span className="font-mono text-xs text-[--color-faint]">
-                      {formatDateTime(log.createdAt)}
+                      {formatDateTime(log.createdAt, timeZone)}
                     </span>
                   </div>
                 ))}
@@ -196,72 +206,80 @@ export default async function AdminPage() {
         </Card>
       </div>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Calendar size={15} className="text-[--color-muted]" />
-            <CardTitle>Fixtures / results</CardTitle>
-          </div>
-          <Badge tone="muted">{matches.length} matches</Badge>
-        </CardHeader>
-        <CardBody className="!px-0 !pb-0">
-          <div className="divide-y divide-[--color-border] border-t border-[--color-border]">
-            {matches.map((match) => (
-              <form
-                key={match.id}
-                action={updateMatchResultAction.bind(null, match.id)}
-                className="grid grid-cols-1 gap-3 px-5 py-3 lg:grid-cols-[1fr_auto] lg:items-center"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <TeamFlag team={match.homeTeam} size="sm" />
-                  <span className="truncate text-sm">
-                    {match.homeTeam?.name ?? "TBD"}
-                  </span>
-                  <span className="text-xs text-[--color-faint]">vs</span>
-                  <span className="truncate text-sm">
-                    {match.awayTeam?.name ?? "TBD"}
-                  </span>
-                  <TeamFlag team={match.awayTeam} size="sm" />
-                  <span className="ml-3 font-mono text-xs text-[--color-faint]">
-                    {formatDateTime(match.kickoffAt)}
-                  </span>
+      <form action={updateAllMatchResultsAction} className="mt-6">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Calendar size={15} className="text-[--color-muted]" />
+              <CardTitle>Fixtures / results</CardTitle>
+            </div>
+            <Badge tone="muted">{matches.length} matches</Badge>
+          </CardHeader>
+          <CardBody className="!px-0 !pb-0">
+            <div className="sticky top-[105px] z-20 flex flex-col gap-2 border-y border-[--color-border] bg-[--color-bg]/95 px-5 py-3 backdrop-blur sm:top-14 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-[--color-muted]">
+                Edit any fixtures below, then save every changed row at once.
+              </p>
+              <Button type="submit" size="sm" className="w-full sm:w-auto">
+                <Save size={13} />
+                Save all changes
+              </Button>
+            </div>
+            <div className="divide-y divide-[--color-border]">
+              {matches.map((match) => (
+                <div
+                  key={match.id}
+                  className="grid grid-cols-1 gap-3 px-5 py-3 lg:grid-cols-[1fr_auto] lg:items-center"
+                >
+                  <input type="hidden" name="matchId" value={match.id} />
+                  <div className="flex min-w-0 flex-wrap items-center gap-3">
+                    <TeamFlag team={match.homeTeam} size="sm" />
+                    <span className="truncate text-sm">
+                      {match.homeTeam?.name ?? "TBD"}
+                    </span>
+                    <span className="text-xs text-[--color-faint]">vs</span>
+                    <span className="truncate text-sm">
+                      {match.awayTeam?.name ?? "TBD"}
+                    </span>
+                    <TeamFlag team={match.awayTeam} size="sm" />
+                    <span className="font-mono text-xs text-[--color-faint] lg:ml-3">
+                      {formatDateTime(match.kickoffAt, timeZone)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                    <Select
+                      defaultValue={match.status}
+                      name={`status-${match.id}`}
+                      className="min-w-0 sm:w-36"
+                    >
+                      {MATCH_STATUS_OPTIONS.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </Select>
+                    <ScoreInput
+                      aria-label="Home score"
+                      defaultValue={match.homeScore90 ?? ""}
+                      max={30}
+                      min={0}
+                      name={`homeScore90-${match.id}`}
+                    />
+                    <span className="text-[--color-faint]">–</span>
+                    <ScoreInput
+                      aria-label="Away score"
+                      defaultValue={match.awayScore90 ?? ""}
+                      max={30}
+                      min={0}
+                      name={`awayScore90-${match.id}`}
+                    />
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Select
-                    defaultValue={match.status}
-                    name="status"
-                    className="w-36"
-                  >
-                    {MATCH_STATUS_OPTIONS.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </Select>
-                  <ScoreInput
-                    aria-label="Home score"
-                    defaultValue={match.homeScore90 ?? ""}
-                    max={30}
-                    min={0}
-                    name="homeScore90"
-                  />
-                  <span className="text-[--color-faint]">–</span>
-                  <ScoreInput
-                    aria-label="Away score"
-                    defaultValue={match.awayScore90 ?? ""}
-                    max={30}
-                    min={0}
-                    name="awayScore90"
-                  />
-                  <Button type="submit" variant="secondary" size="sm">
-                    Save
-                  </Button>
-                </div>
-              </form>
-            ))}
-          </div>
-        </CardBody>
-      </Card>
+              ))}
+            </div>
+          </CardBody>
+        </Card>
+      </form>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card>

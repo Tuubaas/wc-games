@@ -5,7 +5,7 @@ import { LeagueRole, MatchStatus, Prisma, TournamentPickType } from "@prisma/cli
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { signIn, signOut } from "@/auth";
+import { signIn, signOut, updateSession } from "@/auth";
 import { TOURNAMENT_ID } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { safeInternalPath } from "@/lib/redirect";
@@ -47,6 +47,7 @@ export async function completeOnboardingAction(formData: FormData) {
       where: { id: user.id },
       data: { username }
     });
+    await updateSession({ user: { username } });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       redirect(`/onboarding?next=${encodeURIComponent(next)}&error=username-taken`);
@@ -231,6 +232,76 @@ export async function updateMatchResultAction(matchId: string, formData: FormDat
     }
   });
   await recalculateMatchPoints(matchId);
+
+  revalidateScoreViews();
+}
+
+function optionalScore(value: FormDataEntryValue | null) {
+  if (value === null || value === "") return null;
+  return scoreSchema.parse(value);
+}
+
+export async function updateAllMatchResultsAction(formData: FormData) {
+  await requireSiteAdmin("/admin");
+  const matchIds = z.array(z.string().min(1)).parse(formData.getAll("matchId"));
+  const uniqueMatchIds = Array.from(new Set(matchIds));
+  const existingMatches = await prisma.match.findMany({
+    where: { id: { in: uniqueMatchIds } },
+    select: {
+      id: true,
+      status: true,
+      homeScore90: true,
+      awayScore90: true
+    }
+  });
+  const existingById = new Map(existingMatches.map((match) => [match.id, match]));
+  const updates: Array<{
+    awayScore90: number | null;
+    homeScore90: number | null;
+    id: string;
+    status: MatchStatus;
+  }> = [];
+
+  for (const matchId of uniqueMatchIds) {
+    const existing = existingById.get(matchId);
+    if (!existing) continue;
+
+    const status = z.nativeEnum(MatchStatus).parse(formData.get(`status-${matchId}`));
+    const homeScore90 = optionalScore(formData.get(`homeScore90-${matchId}`));
+    const awayScore90 = optionalScore(formData.get(`awayScore90-${matchId}`));
+
+    if (status === MatchStatus.FINISHED && (homeScore90 === null || awayScore90 === null)) {
+      redirect("/admin?error=finished-score-required");
+    }
+
+    if (
+      existing.status !== status ||
+      existing.homeScore90 !== homeScore90 ||
+      existing.awayScore90 !== awayScore90
+    ) {
+      updates.push({ awayScore90, homeScore90, id: matchId, status });
+    }
+  }
+
+  if (updates.length > 0) {
+    await prisma.$transaction(
+      updates.map((update) =>
+        prisma.match.update({
+          where: { id: update.id },
+          data: {
+            status: update.status,
+            homeScore90: update.homeScore90,
+            awayScore90: update.awayScore90,
+            resultSource: update.status === MatchStatus.FINISHED ? "admin" : null
+          }
+        })
+      )
+    );
+
+    for (const update of updates) {
+      await recalculateMatchPoints(update.id);
+    }
+  }
 
   revalidateScoreViews();
 }

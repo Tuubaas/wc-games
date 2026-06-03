@@ -3,14 +3,25 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { LayoutDashboard, CalendarRange, Trophy, ShieldAlert, LogOut, Sparkles } from "lucide-react";
+import {
+  BookOpen,
+  CalendarRange,
+  LayoutDashboard,
+  LogOut,
+  ShieldAlert,
+  Sparkles,
+  Trophy,
+  Users
+} from "lucide-react";
 import { signOutAction } from "@/lib/actions";
 import { cn } from "@/lib/cn";
 
 const NAV = [
-  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/matches", label: "Matches", icon: CalendarRange },
-  { href: "/picks", label: "Picks", icon: Trophy }
+  { href: "/picks", label: "Picks", icon: Trophy },
+  { href: "/leagues", label: "Leagues", icon: Users },
+  { href: "/rules", label: "Rules", icon: BookOpen }
 ] as const;
 
 export function Topbar({
@@ -47,6 +58,7 @@ export function Topbar({
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={false}
                   className={cn(
                     "relative flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
                     active
@@ -71,6 +83,7 @@ export function Topbar({
             {isAdmin ? (
               <Link
                 href="/admin"
+                prefetch={false}
                 className={cn(
                   "relative flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
                   pathname.startsWith("/admin")
@@ -88,6 +101,7 @@ export function Topbar({
         <div className="flex items-center gap-3">
           <Link
             href={`/users/${username}`}
+            prefetch={false}
             className="hidden items-center gap-2 rounded-full border border-[--color-border] bg-[--color-surface] px-3 py-1 text-xs font-medium text-[--color-muted] transition-colors hover:text-[--color-text] sm:flex"
           >
             <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[--color-accent] text-[10px] font-bold text-[--color-accent-fg]">
@@ -116,6 +130,7 @@ export function Topbar({
             <Link
               key={item.href}
               href={item.href}
+              prefetch={false}
               className={cn(
                 "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
                 active
@@ -131,6 +146,7 @@ export function Topbar({
         {isAdmin ? (
           <Link
             href="/admin"
+            prefetch={false}
             className={cn(
               "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs",
               pathname.startsWith("/admin")

@@ -15,10 +15,10 @@ if (process.env.NODE_ENV === "production") {
   }
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut, unstable_update: updateSession } = NextAuth({
   adapter: PrismaAdapter(prisma),
   secret: authSecret ?? "dev-only-world-cup-predictor-secret",
-  session: { strategy: "database" },
+  session: { strategy: "jwt" },
   pages: { signIn: "/" },
   providers: googleClientId && googleClientSecret ? [
     Google({
@@ -27,10 +27,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     })
   ] : [],
   callbacks: {
-    session({ session, user }) {
+    async jwt({ token, user, trigger }) {
+      if (user) {
+        token.id = user.id;
+        token.username = user.username ?? null;
+      }
+
+      if (trigger === "update") {
+        const userId = typeof token.id === "string" ? token.id : token.sub;
+        if (!userId) return null;
+
+        const refreshedUser = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true, image: true, name: true, username: true }
+        });
+        if (!refreshedUser) return null;
+
+        token.email = refreshedUser.email ?? token.email;
+        token.name = refreshedUser.name ?? token.name;
+        token.picture = refreshedUser.image ?? token.picture;
+        token.username = refreshedUser.username ?? null;
+      }
+
+      return token;
+    },
+    session({ session, token }) {
       if (session.user) {
-        session.user.id = user.id;
-        session.user.username = user.username;
+        session.user.id = String(token.id ?? token.sub ?? "");
+        session.user.username =
+          typeof token.username === "string" ? token.username : null;
       }
       return session;
     }

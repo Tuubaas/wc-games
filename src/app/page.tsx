@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 import { ArrowRight, ChevronRight, Sparkles, Target, Trophy, Users } from "lucide-react";
-import { auth } from "@/auth";
 import { signInWithGoogleAction } from "@/lib/actions";
-import { prisma } from "@/lib/db";
+import { getCurrentUser } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
@@ -31,11 +30,8 @@ export default async function Home({
   searchParams: Promise<{ callbackUrl?: string }>;
 }) {
   const params = await searchParams;
-  const session = await auth();
-  if (session?.user?.id) {
-    const user = await prisma.user.findUnique({ where: { id: session.user.id } });
-    redirect(user?.username ? "/dashboard" : "/onboarding");
-  }
+  const user = await getCurrentUser();
+  if (user) redirect(user.username ? "/dashboard" : "/onboarding");
 
   return (
     <main className="relative isolate min-h-screen overflow-hidden">

@@ -1,19 +1,22 @@
 import { TournamentPickType } from "@prisma/client";
 import { Crown, Goal, Lock } from "lucide-react";
 import { saveTournamentPickAction } from "@/lib/actions";
+import { TOURNAMENT_PICK_POINTS } from "@/lib/config";
 import { prisma } from "@/lib/db";
+import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireUser } from "@/lib/session";
 import { formatDateTime, isMatchLocked, matchLockTime } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select } from "@/components/ui/input";
+import { SearchSelect } from "@/components/search-select";
 import { PageHeader } from "@/components/ui/section";
 
 export const dynamic = "force-dynamic";
 
 export default async function PicksPage() {
   const user = await requireUser({ nextPath: "/picks" });
+  const timeZone = await getUserTimeZone();
   const [teams, players, picks, firstMatch] = await Promise.all([
     prisma.team.findMany({ orderBy: { name: "asc" } }),
     prisma.player.findMany({
@@ -28,6 +31,16 @@ export default async function PicksPage() {
   const scorerPick = picks.find((pick) => pick.type === TournamentPickType.TOP_SCORER);
   const locked = firstMatch ? isMatchLocked(firstMatch.kickoffAt) : false;
   const lockMoment = firstMatch ? matchLockTime(firstMatch.kickoffAt) : null;
+  const teamOptions = teams.map((team) => ({
+    value: team.id,
+    label: team.name,
+    meta: team.fifaCode ?? undefined
+  }));
+  const playerOptions = players.map((player) => ({
+    value: player.id,
+    label: player.name,
+    meta: player.team.name
+  }));
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-10">
@@ -44,7 +57,7 @@ export default async function PicksPage() {
           ) : lockMoment ? (
             <Badge tone="muted">
               <Lock size={11} />
-              Lock: {formatDateTime(lockMoment)}
+              Lock: {formatDateTime(lockMoment, timeZone)}
             </Badge>
           ) : null
         }
@@ -58,7 +71,7 @@ export default async function PicksPage() {
               <Crown size={16} className="text-[--color-gold]" />
               <CardTitle>Tournament winner</CardTitle>
             </div>
-            <Badge tone="gold">+25 pts</Badge>
+            <Badge tone="gold">+{TOURNAMENT_PICK_POINTS} pts</Badge>
           </CardHeader>
           <CardBody>
             <p className="mb-5 text-sm text-[--color-muted]">
@@ -68,19 +81,13 @@ export default async function PicksPage() {
               action={saveTournamentPickAction.bind(null, TournamentPickType.WINNER)}
               className="space-y-4"
             >
-              <Select
+              <SearchSelect
                 defaultValue={winnerPick?.teamId ?? ""}
                 disabled={locked}
                 name="teamId"
-                required
-              >
-                <option value="">Choose country</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </Select>
+                options={teamOptions}
+                placeholder="Search countries"
+              />
               <div className="flex items-center justify-between">
                 <Button type="submit" disabled={locked}>
                   {winnerPick ? "Update pick" : "Lock in"}
@@ -102,11 +109,11 @@ export default async function PicksPage() {
               <Goal size={16} className="text-[--color-accent]" />
               <CardTitle>Top scorer</CardTitle>
             </div>
-            <Badge tone="accent">+15 pts</Badge>
+            <Badge tone="accent">+{TOURNAMENT_PICK_POINTS} pts</Badge>
           </CardHeader>
           <CardBody>
             <p className="mb-5 text-sm text-[--color-muted]">
-              Pick the Golden Boot winner. Ties split the points.
+              Pick the Golden Boot winner. If players tie, every correct pick scores.
             </p>
             {players.length === 0 ? (
               <p className="text-sm text-[--color-muted]">
@@ -120,19 +127,13 @@ export default async function PicksPage() {
                 )}
                 className="space-y-4"
               >
-                <Select
+                <SearchSelect
                   defaultValue={scorerPick?.playerId ?? ""}
                   disabled={locked}
                   name="playerId"
-                  required
-                >
-                  <option value="">Choose player</option>
-                  {players.map((player) => (
-                    <option key={player.id} value={player.id}>
-                      {player.name} · {player.team.name}
-                    </option>
-                  ))}
-                </Select>
+                  options={playerOptions}
+                  placeholder="Search players"
+                />
                 <div className="flex items-center justify-between">
                   <Button type="submit" disabled={locked}>
                     {scorerPick ? "Update pick" : "Lock in"}

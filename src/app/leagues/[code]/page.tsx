@@ -8,7 +8,7 @@ import {
   removeMemberAction
 } from "@/lib/actions";
 import { prisma } from "@/lib/db";
-import { rankRows } from "@/lib/leaderboard";
+import { getUserPointTotals, rankRows } from "@/lib/leaderboard";
 import { requireUser } from "@/lib/session";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,12 +30,7 @@ export default async function LeaguePage({
     include: {
       members: {
         include: {
-          user: {
-            include: {
-              predictions: { select: { points: true } },
-              tournamentPicks: { select: { points: true } }
-            }
-          }
+          user: { select: { id: true, username: true } }
         },
         orderBy: { createdAt: "asc" }
       }
@@ -48,13 +43,14 @@ export default async function LeaguePage({
   if (!currentMember) redirect("/dashboard");
 
   const isAdmin = currentMember.role === LeagueRole.ADMIN;
+  const pointTotals = await getUserPointTotals(
+    league.members.map((member) => member.userId)
+  );
   const rows = rankRows(
     league.members.map((member) => ({
       id: member.user.id,
       username: member.user.username ?? "",
-      points:
-        member.user.predictions.reduce((sum, prediction) => sum + prediction.points, 0) +
-        member.user.tournamentPicks.reduce((sum, pick) => sum + pick.points, 0)
+      points: pointTotals.get(member.user.id) ?? 0
     }))
   );
   const isOwner = league.createdById === user.id;

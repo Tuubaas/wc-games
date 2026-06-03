@@ -3,7 +3,7 @@ import { Crown, Eye, EyeOff } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
-import { formatDateTime, isMatchLocked } from "@/lib/time";
+import { isMatchLocked } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { LinkButton } from "@/components/ui/button";

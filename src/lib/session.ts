@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { isSiteAdmin } from "@/lib/config";
@@ -9,21 +10,34 @@ type RequireUserOptions = {
   nextPath?: string;
 };
 
-export async function getCurrentUser() {
+export type CurrentUser = {
+  id: string;
+  email?: string | null;
+  username?: string | null;
+  name?: string | null;
+  image?: string | null;
+};
+
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const session = await auth();
   if (!session?.user?.id) return null;
-  return prisma.user.findUnique({ where: { id: session.user.id } });
-}
+
+  return {
+    id: session.user.id,
+    email: session.user.email ?? null,
+    username: session.user.username ?? null,
+    name: session.user.name ?? null,
+    image: session.user.image ?? null
+  };
+});
 
 export async function requireUser(options: RequireUserOptions = {}) {
-  const session = await auth();
   const nextPath = safeInternalPath(options.nextPath, "/dashboard");
-  if (!session?.user?.id) {
+  const user = await getCurrentUser();
+
+  if (!user) {
     redirect(`/?callbackUrl=${encodeURIComponent(nextPath)}`);
   }
-
-  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
-  if (!user) redirect(`/?callbackUrl=${encodeURIComponent(nextPath)}`);
 
   if (!user.username && !options.allowMissingUsername) {
     redirect(`/onboarding?next=${encodeURIComponent(nextPath)}`);
@@ -34,6 +48,11 @@ export async function requireUser(options: RequireUserOptions = {}) {
 
 export async function requireSiteAdmin(nextPath = "/admin") {
   const user = await requireUser({ nextPath });
-  if (!isSiteAdmin(user.email)) redirect("/dashboard");
-  return user;
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { email: true }
+  });
+
+  if (!dbUser || !isSiteAdmin(dbUser.email)) redirect("/dashboard");
+  return { ...user, email: dbUser.email };
 }
