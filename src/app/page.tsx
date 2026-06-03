@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
-import { ArrowRight, ChevronRight, Sparkles, Target, Trophy, Users } from "lucide-react";
+import { ArrowRight, ChevronRight, Target, Trophy, Users } from "lucide-react";
 import { signInWithGoogleAction } from "@/lib/actions";
 import { getCurrentUser } from "@/lib/session";
 import { Button } from "@/components/ui/button";
+import { TubetsLogo } from "@/components/tubets-logo";
 
 export const dynamic = "force-dynamic";
 
@@ -41,9 +42,7 @@ export default async function Home({
 
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[--color-accent] text-[--color-accent-fg]">
-            <Sparkles size={15} strokeWidth={2.5} />
-          </span>
+          <TubetsLogo />
           Tubets
         </div>
         <span className="hidden text-xs text-[--color-muted] sm:block">

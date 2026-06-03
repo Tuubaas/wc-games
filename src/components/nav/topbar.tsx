@@ -9,12 +9,12 @@ import {
   LayoutDashboard,
   LogOut,
   ShieldAlert,
-  Sparkles,
   Trophy,
   Users
 } from "lucide-react";
 import { signOutAction } from "@/lib/actions";
 import { cn } from "@/lib/cn";
+import { TubetsLogo } from "@/components/tubets-logo";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -41,9 +41,7 @@ export function Topbar({
             href="/dashboard"
             className="group flex items-center gap-2 font-semibold tracking-tight"
           >
-            <span className="relative inline-flex h-7 w-7 items-center justify-center rounded-md bg-[--color-accent] text-[--color-accent-fg] transition-transform group-hover:rotate-[8deg]">
-              <Sparkles size={15} strokeWidth={2.5} />
-            </span>
+            <TubetsLogo className="transition-transform group-hover:rotate-[8deg]" />
             <span className="text-[15px]">Tubets</span>
           </Link>
 
