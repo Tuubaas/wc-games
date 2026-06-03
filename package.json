@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma migrate deploy && next build",
+    "build": "next build",
     "build:local": "next build",
     "lint": "eslint .",
     "test": "vitest run tests/unit",
@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate",
     "import:worldcup": "tsx prisma/import-world-cup-2026.ts",
+    "db:migrate:deploy": "node scripts/prisma-migrate-deploy.mjs",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "seed": "tsx prisma/seed.ts",

@@ -71,10 +71,19 @@ The import is idempotent. It upserts teams by FIFA code, matches by match number
 1. Create a Vercel project.
 2. Add Neon Postgres from Vercel Marketplace.
 3. Add env vars from `.env.example`.
+   Use `DATABASE_URL` for app runtime and `DIRECT_URL` for Prisma migrations. For Neon, `DATABASE_URL` can be pooled and `DIRECT_URL` should be direct. Locally, they can match.
 4. Add Google OAuth redirect URI:
    `https://YOUR_DOMAIN/api/auth/callback/google`
 5. Deploy.
 
-`npm run build` runs `prisma migrate deploy` before `next build`, so Vercel applies checked-in migrations.
+`npm run build` only runs `next build`, so Vercel builds do not depend on database reachability.
+Run checked-in migrations separately when deploying schema changes:
+
+```bash
+DIRECT_URL="postgresql://..." npm run db:migrate:deploy
+```
+
+The migration script uses `DIRECT_URL` from the shell or `.env` when set, otherwise `DATABASE_URL`.
+
 The daily cron calls `/api/cron/sync-results`. Use the admin screen for `Sync now` and manual corrections.
 Set `CRON_SECRET`; the cron route fails closed without it.
