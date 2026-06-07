@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LeagueType } from "@prisma/client";
 import { ArrowRight, Plus, Users } from "lucide-react";
 import { createLeagueAction } from "@/lib/actions";
 import { prisma } from "@/lib/db";
@@ -6,7 +7,7 @@ import { requireUser } from "@/lib/session";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { EmptyState, PageHeader } from "@/components/ui/section";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +59,8 @@ export default async function LeaguesPage() {
                         <p className="truncate text-sm font-semibold">{league.name}</p>
                         <p className="text-xs text-[--color-muted]">
                           {league.members.length}{" "}
-                          {league.members.length === 1 ? "member" : "members"}
+                          {league.members.length === 1 ? "member" : "members"} ·{" "}
+                          {league.type === LeagueType.CLASSIC ? "Classic" : "Dynamic"}
                         </p>
                       </div>
                     </div>
@@ -80,6 +82,14 @@ export default async function LeaguesPage() {
           <CardBody>
             <form action={createLeagueAction} className="space-y-3">
               <Input name="name" placeholder="e.g. Office Pool 2026" required />
+              <Select
+                name="type"
+                defaultValue={LeagueType.DYNAMIC}
+                aria-label="League type"
+              >
+                <option value={LeagueType.DYNAMIC}>Dynamic</option>
+                <option value={LeagueType.CLASSIC}>Classic</option>
+              </Select>
               <Button type="submit" className="w-full">
                 <Plus size={15} />
                 Create

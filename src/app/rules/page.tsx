@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { AlertCircle, CalendarClock, CircleHelp, ListChecks, Lock, Trophy } from "lucide-react";
-import { MATCH_LOCK_MINUTES, MATCH_POINTS, TOURNAMENT_PICK_POINTS } from "@/lib/config";
+import {
+  GROUP_PLACEMENT_POINTS,
+  MATCH_LOCK_MINUTES,
+  MATCH_POINTS,
+  TOURNAMENT_PICK_POINTS
+} from "@/lib/config";
 import { requireUser } from "@/lib/session";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -85,16 +90,17 @@ export default async function RulesPage() {
             a home win, and so on.
           </p>
           <p className="mt-3">
-            The same prediction counts in every league you belong to. Predictions from
-            other players are hidden until that match is locked.
+            Dynamic leagues use your latest eligible prediction. Classic leagues freeze
+            group-stage predictions before the first kickoff. Predictions from other
+            players are hidden until that match is locked.
           </p>
         </RuleCard>
 
         <RuleCard icon={Lock} title="Changing and locking bets">
           <p>
-            You can change a match prediction as many times as you want until{" "}
-            {MATCH_LOCK_MINUTES} minutes before kickoff. After that, the prediction is
-            locked and cannot be edited.
+            Dynamic leagues let you change each match prediction until{" "}
+            {MATCH_LOCK_MINUTES} minutes before kickoff. Classic leagues lock the whole
+            group stage {MATCH_LOCK_MINUTES} minutes before the first kickoff.
           </p>
           <p className="mt-3">
             Tournament winner and top scorer picks lock {MATCH_LOCK_MINUTES} minutes
@@ -124,6 +130,10 @@ export default async function RulesPage() {
           <p className="mt-3">
             Correct tournament winner gives {TOURNAMENT_PICK_POINTS} points. Correct top
             scorer gives {TOURNAMENT_PICK_POINTS} points, and all tied top scorers count.
+          </p>
+          <p className="mt-3">
+            Classic leagues also give {GROUP_PLACEMENT_POINTS} point per team placed in
+            the correct final group position by your frozen group-stage predictions.
           </p>
         </RuleCard>
 

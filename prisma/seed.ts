@@ -1,4 +1,5 @@
 import {
+  LeagueType,
   MatchStage,
   MatchStatus,
   PrismaClient,
@@ -221,12 +222,14 @@ async function main() {
   const officeLeague = await upsertDemoLeague({
     inviteCode: "demo-office-2026",
     name: "Office League",
+    type: LeagueType.CLASSIC,
     createdById: users[0].id
   });
 
   const familyLeague = await upsertDemoLeague({
     inviteCode: "demo-family-2026",
     name: "Family League",
+    type: LeagueType.DYNAMIC,
     createdById: users[1].id
   });
 
@@ -335,6 +338,7 @@ async function main() {
 async function upsertDemoLeague(input: {
   inviteCode: string;
   name: string;
+  type: LeagueType;
   createdById: string;
 }) {
   const existing = await prisma.league.findUnique({
@@ -347,9 +351,10 @@ async function upsertDemoLeague(input: {
 
   return prisma.league.upsert({
     where: { inviteCode: input.inviteCode },
-    update: { name: input.name },
+    update: { name: input.name, type: input.type },
     create: {
       name: input.name,
+      type: input.type,
       inviteCode: input.inviteCode,
       createdById: input.createdById
     }

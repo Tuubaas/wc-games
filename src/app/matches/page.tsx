@@ -1,3 +1,4 @@
+import { LeagueType, MatchStage } from "@prisma/client";
 import { ChevronDown, Lock } from "lucide-react";
 import { savePredictionAction } from "@/lib/actions";
 import { prisma } from "@/lib/db";
@@ -39,14 +40,33 @@ function statusBadge(status: string) {
 export default async function MatchesPage() {
   const user = await requireUser({ nextPath: "/matches" });
   const timeZone = await getUserTimeZone();
-  const matches = await prisma.match.findMany({
-    include: {
-      homeTeam: true,
-      awayTeam: true,
-      predictions: { where: { userId: user.id }, take: 1 }
-    },
-    orderBy: { kickoffAt: "asc" }
-  });
+  const [matches, leagueMemberships, firstGroupMatch] = await Promise.all([
+    prisma.match.findMany({
+      include: {
+        homeTeam: true,
+        awayTeam: true,
+        predictions: { where: { userId: user.id }, take: 1 }
+      },
+      orderBy: { kickoffAt: "asc" }
+    }),
+    prisma.leagueMember.findMany({
+      where: { userId: user.id },
+      select: { league: { select: { type: true } } }
+    }),
+    prisma.match.findFirst({
+      where: { stage: MatchStage.GROUP },
+      orderBy: { kickoffAt: "asc" }
+    })
+  ]);
+  const classicGroupFrozen = firstGroupMatch
+    ? isMatchLocked(firstGroupMatch.kickoffAt)
+    : false;
+  const hasClassicLeague = leagueMemberships.some(
+    (membership) => membership.league.type === LeagueType.CLASSIC
+  );
+  const hasDynamicLeague = leagueMemberships.some(
+    (membership) => membership.league.type === LeagueType.DYNAMIC
+  );
 
   const groups = new Map<string, typeof matches>();
   for (const match of matches) {
@@ -60,7 +80,7 @@ export default async function MatchesPage() {
       <PageHeader
         eyebrow="Predictions"
         title="Matches"
-        description="Lock in your scores up to 30 minutes before kickoff. Outcome 3 pts · team scores 1+1 pts · exact score bonus 3 pts."
+        description="Dynamic predictions lock match by match. Classic group-stage scoring freezes before the first kickoff."
       />
 
       {matches.length === 0 ? (
@@ -90,8 +110,13 @@ export default async function MatchesPage() {
                   {dayMatches.map((match) => {
                     const prediction = match.predictions[0];
                     const locked = isMatchLocked(match.kickoffAt);
+                    const classicFrozen =
+                      hasClassicLeague &&
+                      classicGroupFrozen &&
+                      match.stage === MatchStage.GROUP;
                     const teamsKnown = Boolean(match.homeTeam && match.awayTeam);
-                    const disabled = locked || !teamsKnown;
+                    const disabled =
+                      locked || !teamsKnown || (classicFrozen && !hasDynamicLeague);
                     const finished = match.status === "FINISHED";
                     const saveAction = savePredictionAction.bind(null, match.id);
 
@@ -134,6 +159,7 @@ export default async function MatchesPage() {
                           {match.groupName ? (
                             <Badge tone="muted">Group {match.groupName}</Badge>
                           ) : null}
+                          {classicFrozen ? <Badge tone="gold">Classic frozen</Badge> : null}
                           <span className="font-mono">
                             {formatTime(match.kickoffAt, timeZone)}
                           </span>

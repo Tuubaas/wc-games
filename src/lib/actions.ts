@@ -1,7 +1,14 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
-import { LeagueRole, MatchStatus, Prisma, TournamentPickType } from "@prisma/client";
+import {
+  LeagueRole,
+  LeagueType,
+  MatchStage,
+  MatchStatus,
+  Prisma,
+  TournamentPickType
+} from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -9,7 +16,12 @@ import { signIn, signOut, updateSession } from "@/auth";
 import { TOURNAMENT_ID } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { safeInternalPath } from "@/lib/redirect";
-import { recalculateAllPoints, recalculateMatchPoints, recalculateTournamentPoints } from "@/lib/scoring";
+import {
+  freezeClassicGroupPredictionsForUser,
+  recalculateAllPoints,
+  recalculateMatchPoints,
+  recalculateTournamentPoints
+} from "@/lib/scoring";
 import { requireSiteAdmin, requireUser } from "@/lib/session";
 import { isMatchLocked } from "@/lib/time";
 import { syncFootballDataResults } from "@/lib/results-sync";
@@ -70,11 +82,16 @@ async function createInviteCode() {
 export async function createLeagueAction(formData: FormData) {
   const user = await requireUser({ nextPath: "/dashboard" });
   const name = z.string().trim().min(2).max(80).parse(formData.get("name"));
+  const type = z
+    .nativeEnum(LeagueType)
+    .catch(LeagueType.DYNAMIC)
+    .parse(formData.get("type"));
   const inviteCode = await createInviteCode();
 
   const league = await prisma.league.create({
     data: {
       name,
+      type,
       inviteCode,
       createdById: user.id,
       members: {
@@ -156,6 +173,11 @@ export async function savePredictionAction(matchId: string, formData: FormData) 
   const match = await prisma.match.findUnique({ where: { id: matchId } });
   if (!match || !match.homeTeamId || !match.awayTeamId || isMatchLocked(match.kickoffAt)) {
     redirect("/matches");
+  }
+
+  if (match.stage === MatchStage.GROUP) {
+    await freezeClassicGroupPredictionsForUser(user.id);
+    if (await isClassicOnlyGroupStageLocked(user.id)) redirect("/matches");
   }
 
   const homeGoals = scoreSchema.parse(formData.get("homeGoals"));
@@ -407,6 +429,28 @@ async function requireLeagueAdmin(leagueId: string, userId: string) {
     where: { leagueId_userId: { leagueId, userId } }
   });
   if (member?.role !== LeagueRole.ADMIN) redirect("/dashboard");
+}
+
+async function isClassicOnlyGroupStageLocked(userId: string) {
+  const firstGroupMatch = await prisma.match.findFirst({
+    where: { stage: MatchStage.GROUP },
+    orderBy: { kickoffAt: "asc" },
+    select: { kickoffAt: true }
+  });
+  if (!firstGroupMatch || !isMatchLocked(firstGroupMatch.kickoffAt)) return false;
+
+  const memberships = await prisma.leagueMember.findMany({
+    where: { userId },
+    select: { league: { select: { type: true } } }
+  });
+  const hasClassicLeague = memberships.some(
+    (membership) => membership.league.type === LeagueType.CLASSIC
+  );
+  const hasDynamicLeague = memberships.some(
+    (membership) => membership.league.type === LeagueType.DYNAMIC
+  );
+
+  return hasClassicLeague && !hasDynamicLeague;
 }
 
 async function areTournamentPicksLocked() {

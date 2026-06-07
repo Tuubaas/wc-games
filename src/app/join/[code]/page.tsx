@@ -1,3 +1,4 @@
+import { LeagueType } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { ArrowRight, ShieldCheck, Users } from "lucide-react";
 import { joinLeagueAction, signInWithGoogleAction } from "@/lib/actions";
@@ -46,7 +47,8 @@ export default async function JoinLeaguePage({
               <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-[--color-muted]">
                 <Users size={13} />
                 {league.members.length}{" "}
-                {league.members.length === 1 ? "member already in" : "members already in"}
+                {league.members.length === 1 ? "member already in" : "members already in"} ·{" "}
+                {league.type === LeagueType.CLASSIC ? "Classic" : "Dynamic"}
               </p>
             </div>
 

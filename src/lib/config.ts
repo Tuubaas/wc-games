@@ -6,6 +6,7 @@ export const MATCH_POINTS = {
   awayGoals: 1,
   exactScore: 3
 };
+export const GROUP_PLACEMENT_POINTS = 1;
 export const TOURNAMENT_PICK_POINTS = 5;
 
 export function isSiteAdmin(email?: string | null) {

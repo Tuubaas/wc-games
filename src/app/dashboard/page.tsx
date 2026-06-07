@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LeagueType } from "@prisma/client";
 import {
   ArrowRight,
   CalendarDays,
@@ -16,7 +17,7 @@ import { requireUser } from "@/lib/session";
 import { formatMatchDayLabel, formatTime } from "@/lib/time";
 import { Button, LinkButton } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { TeamFlag } from "@/components/ui/team-flag";
 import { EmptyState, PageHeader, Stat } from "@/components/ui/section";
@@ -185,7 +186,8 @@ export default async function DashboardPage() {
                         <p className="truncate text-sm font-medium">{league.name}</p>
                         <p className="text-xs text-[--color-muted]">
                           {league.members.length}{" "}
-                          {league.members.length === 1 ? "member" : "members"}
+                          {league.members.length === 1 ? "member" : "members"} ·{" "}
+                          {league.type === LeagueType.CLASSIC ? "Classic" : "Dynamic"}
                         </p>
                       </div>
                     </div>
@@ -214,6 +216,15 @@ export default async function DashboardPage() {
                   required
                   className="flex-1"
                 />
+                <Select
+                  name="type"
+                  defaultValue={LeagueType.DYNAMIC}
+                  aria-label="League type"
+                  className="sm:w-36"
+                >
+                  <option value={LeagueType.DYNAMIC}>Dynamic</option>
+                  <option value={LeagueType.CLASSIC}>Classic</option>
+                </Select>
                 <Button type="submit" className="sm:w-auto">
                   <Plus size={15} />
                   Create

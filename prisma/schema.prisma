@@ -12,6 +12,11 @@ enum LeagueRole {
   MEMBER
 }
 
+enum LeagueType {
+  CLASSIC
+  DYNAMIC
+}
+
 enum MatchStage {
   GROUP
   ROUND_OF_32
@@ -36,20 +41,21 @@ enum TournamentPickType {
 }
 
 model User {
-  id              String           @id @default(cuid())
-  name            String?
-  email           String?          @unique
-  emailVerified   DateTime?
-  image           String?
-  username        String?          @unique
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  accounts        Account[]
-  sessions        Session[]
-  leaguesCreated  League[]         @relation("LeagueCreator")
-  leagueMembers   LeagueMember[]
-  predictions     Prediction[]
-  tournamentPicks TournamentPick[]
+  id                 String              @id @default(cuid())
+  name               String?
+  email              String?             @unique
+  emailVerified      DateTime?
+  image              String?
+  username           String?             @unique
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  accounts           Account[]
+  sessions           Session[]
+  leaguesCreated     League[]            @relation("LeagueCreator")
+  leagueMembers      LeagueMember[]
+  predictions        Prediction[]
+  classicPredictions ClassicPrediction[]
+  tournamentPicks    TournamentPick[]
 }
 
 model Account {
@@ -87,14 +93,16 @@ model VerificationToken {
 }
 
 model League {
-  id          String         @id @default(cuid())
-  name        String
-  inviteCode  String         @unique
-  createdById String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  createdBy   User           @relation("LeagueCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  members     LeagueMember[]
+  id                 String              @id @default(cuid())
+  name               String
+  type               LeagueType          @default(DYNAMIC)
+  inviteCode         String              @unique
+  createdById        String
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  createdBy          User                @relation("LeagueCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members            LeagueMember[]
+  classicPredictions ClassicPrediction[]
 }
 
 model LeagueMember {
@@ -111,52 +119,53 @@ model LeagueMember {
 }
 
 model Team {
-  id         String   @id @default(cuid())
-  externalId String?  @unique
-  name       String
-  fifaCode   String?  @unique
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  homeMatches Match[] @relation("HomeTeam")
-  awayMatches Match[] @relation("AwayTeam")
-  players    Player[]
-  winnerPicks TournamentPick[] @relation("WinnerPick")
+  id             String             @id @default(cuid())
+  externalId     String?            @unique
+  name           String
+  fifaCode       String?            @unique
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  homeMatches    Match[]            @relation("HomeTeam")
+  awayMatches    Match[]            @relation("AwayTeam")
+  players        Player[]
+  winnerPicks    TournamentPick[]   @relation("WinnerPick")
   tournamentWins TournamentResult[] @relation("TournamentWinner")
 }
 
 model Player {
-  id            String          @id @default(cuid())
-  externalId    String?         @unique
+  id            String                      @id @default(cuid())
+  externalId    String?                     @unique
   name          String
   teamId        String
   position      String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  team          Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  scorerPicks   TournamentPick[] @relation("TopScorerPick")
+  createdAt     DateTime                    @default(now())
+  updatedAt     DateTime                    @updatedAt
+  team          Team                        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  scorerPicks   TournamentPick[]            @relation("TopScorerPick")
   topScorerWins TournamentTopScorerResult[]
 
   @@unique([teamId, name])
 }
 
 model Match {
-  id           String       @id @default(cuid())
-  externalId   String?      @unique
-  matchNumber  Int?         @unique
-  stage        MatchStage   @default(GROUP)
-  groupName    String?
-  kickoffAt    DateTime
-  homeTeamId   String?
-  awayTeamId   String?
-  homeScore90  Int?
-  awayScore90  Int?
-  status       MatchStatus  @default(SCHEDULED)
-  resultSource String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  homeTeam     Team?        @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam     Team?        @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  predictions  Prediction[]
+  id                 String              @id @default(cuid())
+  externalId         String?             @unique
+  matchNumber        Int?                @unique
+  stage              MatchStage          @default(GROUP)
+  groupName          String?
+  kickoffAt          DateTime
+  homeTeamId         String?
+  awayTeamId         String?
+  homeScore90        Int?
+  awayScore90        Int?
+  status             MatchStatus         @default(SCHEDULED)
+  resultSource       String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  homeTeam           Team?               @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam           Team?               @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  predictions        Prediction[]
+  classicPredictions ClassicPrediction[]
 
   @@index([kickoffAt])
   @@index([status])
@@ -175,6 +184,25 @@ model Prediction {
   match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
 
   @@unique([userId, matchId])
+  @@index([matchId])
+}
+
+model ClassicPrediction {
+  id        String   @id @default(cuid())
+  leagueId  String
+  userId    String
+  matchId   String
+  homeGoals Int
+  awayGoals Int
+  points    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  league    League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, userId, matchId])
+  @@index([userId])
   @@index([matchId])
 }
 
@@ -197,13 +225,13 @@ model TournamentPick {
 }
 
 model TournamentResult {
-  id             String                     @id
-  winnerTeamId   String?
-  finalizedAt    DateTime?
-  createdAt      DateTime                   @default(now())
-  updatedAt      DateTime                   @updatedAt
-  winnerTeam     Team?                      @relation("TournamentWinner", fields: [winnerTeamId], references: [id])
-  topScorers     TournamentTopScorerResult[]
+  id           String                      @id
+  winnerTeamId String?
+  finalizedAt  DateTime?
+  createdAt    DateTime                    @default(now())
+  updatedAt    DateTime                    @updatedAt
+  winnerTeam   Team?                       @relation("TournamentWinner", fields: [winnerTeamId], references: [id])
+  topScorers   TournamentTopScorerResult[]
 }
 
 model TournamentTopScorerResult {

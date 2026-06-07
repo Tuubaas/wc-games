@@ -1,4 +1,4 @@
-import { LeagueRole } from "@prisma/client";
+import { LeagueRole, LeagueType } from "@prisma/client";
 import { Crown, LogOut, RefreshCcw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -8,7 +8,7 @@ import {
   removeMemberAction
 } from "@/lib/actions";
 import { prisma } from "@/lib/db";
-import { getUserPointTotals, rankRows } from "@/lib/leaderboard";
+import { getLeaguePointTotals, rankRows } from "@/lib/leaderboard";
 import { requireUser } from "@/lib/session";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,9 +43,7 @@ export default async function LeaguePage({
   if (!currentMember) redirect("/dashboard");
 
   const isAdmin = currentMember.role === LeagueRole.ADMIN;
-  const pointTotals = await getUserPointTotals(
-    league.members.map((member) => member.userId)
-  );
+  const pointTotals = await getLeaguePointTotals(league);
   const rows = rankRows(
     league.members.map((member) => ({
       id: member.user.id,
@@ -61,7 +59,7 @@ export default async function LeaguePage({
       <PageHeader
         eyebrow="League"
         title={league.name}
-        description={`${league.members.length} ${league.members.length === 1 ? "member" : "members"} · invite code ${league.inviteCode}`}
+        description={`${league.type === LeagueType.CLASSIC ? "Classic" : "Dynamic"} · ${league.members.length} ${league.members.length === 1 ? "member" : "members"} · invite code ${league.inviteCode}`}
         action={
           <form action={leaveLeagueAction.bind(null, league.id)}>
             <Button type="submit" variant="danger" size="sm">

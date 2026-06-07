@@ -7,6 +7,7 @@ import {
   ShieldAlert,
   Trophy
 } from "lucide-react";
+import { AdminLeagueList } from "@/app/admin/league-list";
 import {
   addTopScorerResultAction,
   createPlayerAction,
@@ -42,23 +43,42 @@ const MATCH_STATUS_OPTIONS = [
 export default async function AdminPage() {
   await requireSiteAdmin("/admin");
   const timeZone = await getUserTimeZone();
-  const [matches, teams, players, tournamentResult, logs] = await Promise.all([
-    prisma.match.findMany({
-      include: { homeTeam: true, awayTeam: true },
-      orderBy: { kickoffAt: "asc" }
-    }),
-    prisma.team.findMany({ orderBy: { name: "asc" } }),
-    prisma.player.findMany({
-      include: { team: true },
-      orderBy: [{ team: { name: "asc" } }, { name: "asc" }]
-    }),
-    prisma.tournamentResult.findUnique({
-      where: { id: TOURNAMENT_ID },
-      include: { topScorers: { include: { player: { include: { team: true } } } } }
-    }),
-    prisma.resultSyncLog.findMany({ orderBy: { createdAt: "desc" }, take: 5 })
-  ]);
+  const [matches, teams, players, tournamentResult, logs, leagues] =
+    await Promise.all([
+      prisma.match.findMany({
+        include: { homeTeam: true, awayTeam: true },
+        orderBy: { kickoffAt: "asc" }
+      }),
+      prisma.team.findMany({ orderBy: { name: "asc" } }),
+      prisma.player.findMany({
+        include: { team: true },
+        orderBy: [{ team: { name: "asc" } }, { name: "asc" }]
+      }),
+      prisma.tournamentResult.findUnique({
+        where: { id: TOURNAMENT_ID },
+        include: {
+          topScorers: { include: { player: { include: { team: true } } } }
+        }
+      }),
+      prisma.resultSyncLog.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
+      prisma.league.findMany({
+        include: {
+          createdBy: { select: { username: true } },
+          _count: { select: { members: true } }
+        },
+        orderBy: { createdAt: "desc" }
+      })
+    ]);
   const topScorers = tournamentResult?.topScorers ?? [];
+  const leagueSummaries = leagues.map((league) => ({
+    id: league.id,
+    name: league.name,
+    type: league.type,
+    inviteCode: league.inviteCode,
+    creatorUsername: league.createdBy.username,
+    createdAt: formatDateTime(league.createdAt, timeZone),
+    memberCount: league._count.members
+  }));
 
   return (
     <main className="mx-auto max-w-7xl px-5 py-10">
@@ -204,6 +224,10 @@ export default async function AdminPage() {
             )}
           </CardBody>
         </Card>
+      </div>
+
+      <div className="mt-6">
+        <AdminLeagueList leagues={leagueSummaries} />
       </div>
 
       <form action={updateAllMatchResultsAction} className="mt-6">
