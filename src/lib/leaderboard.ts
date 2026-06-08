@@ -103,7 +103,7 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
         homeGoals: true,
         awayGoals: true,
         points: true,
-        createdAt: true
+        updatedAt: true
       }
     }),
     prisma.classicPrediction.findMany({
@@ -172,7 +172,7 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
       const prediction = groupPredictionsByUserMatch.get(key);
       const frozenPrediction =
         classicPrediction ??
-        (prediction && prediction.createdAt.getTime() <= lockMs ? prediction : null);
+        (prediction && prediction.updatedAt.getTime() <= lockMs ? prediction : null);
 
       if (!frozenPrediction) continue;
 

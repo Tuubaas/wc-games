@@ -96,7 +96,7 @@ export async function freezeClassicGroupPredictionsForUser(userId: string) {
     prisma.prediction.findMany({
       where: {
         userId,
-        createdAt: { lte: lockTime },
+        updatedAt: { lte: lockTime },
         match: { stage: MatchStage.GROUP }
       },
       include: { match: true }

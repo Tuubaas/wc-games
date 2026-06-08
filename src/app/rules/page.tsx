@@ -1,40 +1,13 @@
 import Link from "next/link";
 import { AlertCircle, CalendarClock, CircleHelp, ListChecks, Lock, Trophy } from "lucide-react";
-import {
-  GROUP_PLACEMENT_POINTS,
-  MATCH_LOCK_MINUTES,
-  MATCH_POINTS,
-  TOURNAMENT_PICK_POINTS
-} from "@/lib/config";
+import { MATCH_LOCK_MINUTES, MATCH_POINTS } from "@/lib/config";
 import { requireUser } from "@/lib/session";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/section";
+import { PointSystemTabs } from "@/app/rules/point-system-tabs";
 
 export const dynamic = "force-dynamic";
-
-const scoringRows = [
-  {
-    label: "Correct outcome",
-    detail: "Home win, draw, or away win",
-    points: MATCH_POINTS.outcome
-  },
-  {
-    label: "Correct home score",
-    detail: "Home team's 90-minute goals exactly right",
-    points: MATCH_POINTS.homeGoals
-  },
-  {
-    label: "Correct away score",
-    detail: "Away team's 90-minute goals exactly right",
-    points: MATCH_POINTS.awayGoals
-  },
-  {
-    label: "Exact score bonus",
-    detail: "Both team scores exactly right",
-    points: MATCH_POINTS.exactScore
-  }
-];
 
 function RuleCard({
   icon: Icon,
@@ -109,32 +82,7 @@ export default async function RulesPage() {
         </RuleCard>
 
         <RuleCard icon={Trophy} title="Point system">
-          <div className="overflow-hidden rounded-lg border border-[--color-border]">
-            {scoringRows.map((row) => (
-              <div
-                key={row.label}
-                className="grid grid-cols-[1fr_auto] gap-4 border-b border-[--color-border] px-4 py-3 last:border-b-0"
-              >
-                <div>
-                  <p className="font-medium text-[--color-text]">{row.label}</p>
-                  <p className="text-xs text-[--color-faint]">{row.detail}</p>
-                </div>
-                <Badge tone="muted">{row.points} pts</Badge>
-              </div>
-            ))}
-          </div>
-          <p className="mt-3">
-            Exact score therefore gives {maxMatchPoints} total points: outcome, both team
-            scores, and the exact-score bonus.
-          </p>
-          <p className="mt-3">
-            Correct tournament winner gives {TOURNAMENT_PICK_POINTS} points. Correct top
-            scorer gives {TOURNAMENT_PICK_POINTS} points, and all tied top scorers count.
-          </p>
-          <p className="mt-3">
-            Classic leagues also give {GROUP_PLACEMENT_POINTS} point per team placed in
-            the correct final group position by your frozen group-stage predictions.
-          </p>
+          <PointSystemTabs maxMatchPoints={maxMatchPoints} />
         </RuleCard>
 
         <RuleCard icon={CalendarClock} title="Knockout round bets">
