@@ -5,14 +5,17 @@ import { notFound, redirect } from "next/navigation";
 import {
   leaveLeagueAction,
   regenerateInviteAction,
-  removeMemberAction
+  removeMemberAction,
+  updateLeagueTypeAction
 } from "@/lib/actions";
 import { prisma } from "@/lib/db";
 import { getLeaguePointTotals, rankRows } from "@/lib/leaderboard";
 import { requireUser } from "@/lib/session";
+import { isMatchLocked } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/input";
 import { CopyInvite } from "@/components/copy-invite";
 import { PageHeader } from "@/components/ui/section";
 
@@ -25,17 +28,24 @@ export default async function LeaguePage({
 }) {
   const { code } = await params;
   const user = await requireUser({ nextPath: `/leagues/${code}` });
-  const league = await prisma.league.findUnique({
-    where: { inviteCode: code },
-    include: {
-      members: {
-        include: {
-          user: { select: { id: true, username: true } }
+  const [league, firstGroupMatch] = await Promise.all([
+    prisma.league.findUnique({
+      where: { inviteCode: code },
+      include: {
+        members: {
+          include: {
+            user: { select: { id: true, username: true } }
+          },
+          orderBy: { createdAt: "asc" }
         },
-        orderBy: { createdAt: "asc" }
       }
-    }
-  });
+    }),
+    prisma.match.findFirst({
+      where: { stage: "GROUP" },
+      orderBy: { kickoffAt: "asc" },
+      select: { kickoffAt: true }
+    })
+  ]);
 
   if (!league) notFound();
 
@@ -53,6 +63,9 @@ export default async function LeaguePage({
   );
   const isOwner = league.createdById === user.id;
   const leaveLabel = isOwner ? "Delete league" : "Leave league";
+  const typeChangeLocked = firstGroupMatch
+    ? isMatchLocked(firstGroupMatch.kickoffAt)
+    : false;
 
   return (
     <main className="mx-auto max-w-7xl px-5 py-10">
@@ -127,6 +140,50 @@ export default async function LeaguePage({
         </Card>
 
         <aside className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Settings</CardTitle>
+              <Badge tone={league.type === LeagueType.CLASSIC ? "gold" : "blue"}>
+                {league.type === LeagueType.CLASSIC ? "Classic" : "Dynamic"}
+              </Badge>
+            </CardHeader>
+            <CardBody>
+              {isAdmin ? (
+                <form
+                  action={updateLeagueTypeAction.bind(null, league.id)}
+                  className="space-y-3"
+                >
+                  <Select
+                    aria-label="League type"
+                    defaultValue={league.type}
+                    disabled={typeChangeLocked}
+                    name="type"
+                  >
+                    <option value={LeagueType.DYNAMIC}>Dynamic</option>
+                    <option value={LeagueType.CLASSIC}>Classic</option>
+                  </Select>
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    size="sm"
+                    disabled={typeChangeLocked}
+                  >
+                    Save type
+                  </Button>
+                  {typeChangeLocked ? (
+                    <p className="text-xs text-[--color-faint]">
+                      Locked after the first group-stage deadline.
+                    </p>
+                  ) : null}
+                </form>
+              ) : (
+                <p className="text-sm text-[--color-muted]">
+                  League type is managed by admins.
+                </p>
+              )}
+            </CardBody>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Invite</CardTitle>

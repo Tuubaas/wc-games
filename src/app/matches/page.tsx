@@ -11,6 +11,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { ScoreInput } from "@/components/ui/input";
 import { EmptyState, PageHeader } from "@/components/ui/section";
 import { TeamFlag } from "@/components/ui/team-flag";
+import { PredictionDraftSync } from "@/app/matches/prediction-draft-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,9 @@ export default async function MatchesPage() {
   const hasDynamicLeague = leagueMemberships.some(
     (membership) => membership.league.type === LeagueType.DYNAMIC
   );
+  const draftSignature = matches
+    .map((match) => `${match.id}:${match.predictions[0]?.updatedAt.getTime() ?? 0}`)
+    .join("|");
 
   const groups = new Map<string, typeof matches>();
   for (const match of matches) {
@@ -77,6 +81,7 @@ export default async function MatchesPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-10">
+      <PredictionDraftSync signature={draftSignature} />
       <PageHeader
         eyebrow="Predictions"
         title="Matches"
@@ -177,6 +182,11 @@ export default async function MatchesPage() {
                         <form
                           action={saveAction}
                           data-testid={`prediction-form-${match.matchNumber ?? match.id}`}
+                          data-prediction-draft-disabled={disabled ? "true" : "false"}
+                          data-prediction-draft-key={`tubets:prediction-draft:v1:${user.id}:${match.id}`}
+                          data-prediction-server-updated-at={
+                            prediction?.updatedAt.getTime() ?? 0
+                          }
                           className="flex items-center justify-end gap-2"
                         >
                           {finished ? (

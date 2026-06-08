@@ -168,6 +168,29 @@ export async function leaveLeagueAction(leagueId: string) {
   redirect("/dashboard");
 }
 
+export async function updateLeagueTypeAction(leagueId: string, formData: FormData) {
+  const user = await requireUser({ nextPath: "/dashboard" });
+  await requireLeagueAdmin(leagueId, user.id);
+
+  const league = await prisma.league.findUnique({
+    where: { id: leagueId },
+    select: { inviteCode: true }
+  });
+  if (!league) redirect("/dashboard");
+  if (await isGroupStageLockActive()) redirect(`/leagues/${league.inviteCode}`);
+
+  const type = z.nativeEnum(LeagueType).parse(formData.get("type"));
+  await prisma.league.update({
+    where: { id: leagueId },
+    data: { type }
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/leagues");
+  revalidatePath("/matches");
+  revalidatePath(`/leagues/${league.inviteCode}`);
+}
+
 export async function savePredictionAction(matchId: string, formData: FormData) {
   const user = await requireUser({ nextPath: "/matches" });
   const match = await prisma.match.findUnique({ where: { id: matchId } });
@@ -432,12 +455,7 @@ async function requireLeagueAdmin(leagueId: string, userId: string) {
 }
 
 async function isClassicOnlyGroupStageLocked(userId: string) {
-  const firstGroupMatch = await prisma.match.findFirst({
-    where: { stage: MatchStage.GROUP },
-    orderBy: { kickoffAt: "asc" },
-    select: { kickoffAt: true }
-  });
-  if (!firstGroupMatch || !isMatchLocked(firstGroupMatch.kickoffAt)) return false;
+  if (!(await isGroupStageLockActive())) return false;
 
   const memberships = await prisma.leagueMember.findMany({
     where: { userId },
@@ -451,6 +469,15 @@ async function isClassicOnlyGroupStageLocked(userId: string) {
   );
 
   return hasClassicLeague && !hasDynamicLeague;
+}
+
+async function isGroupStageLockActive() {
+  const firstGroupMatch = await prisma.match.findFirst({
+    where: { stage: MatchStage.GROUP },
+    orderBy: { kickoffAt: "asc" },
+    select: { kickoffAt: true }
+  });
+  return firstGroupMatch ? isMatchLocked(firstGroupMatch.kickoffAt) : false;
 }
 
 async function areTournamentPicksLocked() {
