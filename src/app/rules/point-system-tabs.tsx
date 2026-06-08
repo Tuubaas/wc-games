@@ -44,20 +44,25 @@ export function PointSystemTabs({ maxMatchPoints }: { maxMatchPoints: number }) 
 
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 rounded-md border border-[--color-border] bg-[--color-surface-2] p-1">
+      <div
+        role="tablist"
+        aria-label="League type point system"
+        className="mb-4 grid grid-cols-2 rounded-md border border-[--color-border] bg-[--color-surface-2] p-1"
+      >
         {tabs.map((tab) => {
           const active = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               type="button"
-              aria-pressed={active}
+              role="tab"
+              aria-selected={active}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "h-8 rounded-[6px] text-sm font-medium transition-colors",
+                "h-8 rounded-[6px] border text-sm font-medium transition-colors",
                 active
-                  ? "bg-[--color-surface-3] text-[--color-text] shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]"
-                  : "text-[--color-muted] hover:text-[--color-text]"
+                  ? "border-[--color-accent]/60 bg-[--color-accent-soft] text-[--color-accent] shadow-[0_0_0_1px_rgba(198,242,78,0.24)]"
+                  : "border-transparent text-[--color-muted] hover:border-[--color-border-strong] hover:text-[--color-text]"
               )}
             >
               {tab.label}
