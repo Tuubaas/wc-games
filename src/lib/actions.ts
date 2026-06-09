@@ -212,7 +212,6 @@ export async function savePredictionAction(matchId: string, formData: FormData) 
     create: { userId: user.id, matchId, homeGoals, awayGoals }
   });
 
-  revalidatePath("/matches");
   revalidatePath("/dashboard");
 }
 

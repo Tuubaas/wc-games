@@ -6,12 +6,11 @@ import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireUser } from "@/lib/session";
 import { formatMatchDayLabel, formatTime, isMatchLocked, matchLockTime } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
-import { ScoreInput } from "@/components/ui/input";
 import { EmptyState, PageHeader } from "@/components/ui/section";
 import { TeamFlag } from "@/components/ui/team-flag";
-import { PredictionDraftSync } from "@/app/matches/prediction-draft-sync";
+import { PredictionForm } from "@/app/matches/prediction-form";
+import { SaveAllPredictionsButton } from "@/app/matches/save-all-predictions-button";
 
 export const dynamic = "force-dynamic";
 
@@ -68,9 +67,6 @@ export default async function MatchesPage() {
   const hasDynamicLeague = leagueMemberships.some(
     (membership) => membership.league.type === LeagueType.DYNAMIC
   );
-  const draftSignature = matches
-    .map((match) => `${match.id}:${match.predictions[0]?.updatedAt.getTime() ?? 0}`)
-    .join("|");
 
   const groups = new Map<string, typeof matches>();
   for (const match of matches) {
@@ -81,11 +77,11 @@ export default async function MatchesPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-10">
-      <PredictionDraftSync signature={draftSignature} />
       <PageHeader
         eyebrow="Predictions"
         title="Matches"
         description="Dynamic predictions lock match by match. Classic group-stage scoring freezes before the first kickoff."
+        action={<SaveAllPredictionsButton />}
       />
 
       {matches.length === 0 ? (
@@ -179,59 +175,21 @@ export default async function MatchesPage() {
                           ) : null}
                         </div>
 
-                        <form
+                        <PredictionForm
+                          key={`${match.id}:${prediction?.updatedAt.getTime() ?? 0}`}
                           action={saveAction}
-                          data-testid={`prediction-form-${match.matchNumber ?? match.id}`}
-                          data-prediction-draft-disabled={disabled ? "true" : "false"}
-                          data-prediction-draft-key={`tubets:prediction-draft:v1:${user.id}:${match.id}`}
-                          data-prediction-server-updated-at={
-                            prediction?.updatedAt.getTime() ?? 0
-                          }
-                          className="flex items-center justify-end gap-2"
-                        >
-                          {finished ? (
-                            <div className="mr-2 text-right">
-                              <p className="text-[10px] uppercase tracking-wider text-[--color-faint]">
-                                Full time
-                              </p>
-                              <p className="font-mono text-base font-semibold text-[--color-text]">
-                                {match.homeScore90}–{match.awayScore90}
-                              </p>
-                            </div>
-                          ) : null}
-                          <ScoreInput
-                            aria-label="Home goals"
-                            defaultValue={prediction?.homeGoals ?? ""}
-                            disabled={disabled}
-                            min={0}
-                            max={30}
-                            name="homeGoals"
-                            required
-                          />
-                          <span className="text-[--color-faint]">–</span>
-                          <ScoreInput
-                            aria-label="Away goals"
-                            defaultValue={prediction?.awayGoals ?? ""}
-                            disabled={disabled}
-                            min={0}
-                            max={30}
-                            name="awayGoals"
-                            required
-                          />
-                          <Button
-                            type="submit"
-                            variant="secondary"
-                            size="sm"
-                            disabled={disabled}
-                          >
-                            {prediction ? "Update" : "Save"}
-                          </Button>
-                          {prediction && finished ? (
-                            <Badge tone={prediction.points > 0 ? "accent" : "muted"}>
-                              {prediction.points > 0 ? `+${prediction.points}` : "0"} pts
-                            </Badge>
-                          ) : null}
-                        </form>
+                          awayScore90={match.awayScore90}
+                          disabled={disabled}
+                          draftKey={`tubets:prediction-draft:v1:${user.id}:${match.id}`}
+                          finished={finished}
+                          hasPrediction={Boolean(prediction)}
+                          homeScore90={match.homeScore90}
+                          initialAwayGoals={prediction?.awayGoals ?? null}
+                          initialHomeGoals={prediction?.homeGoals ?? null}
+                          points={prediction?.points ?? null}
+                          serverUpdatedAt={prediction?.updatedAt.getTime() ?? 0}
+                          testId={`prediction-form-${match.matchNumber ?? match.id}`}
+                        />
                       </div>
                     );
                   })}
