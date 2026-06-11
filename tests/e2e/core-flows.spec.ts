@@ -91,6 +91,19 @@ test("signup/login, predictions, leagues, joining, leaderboard, and freeze", asy
   await page.goto("/dashboard");
   await expect(page.getByText(`@${owner.username}`).first()).toBeVisible();
 
+  const [ownerUser, lockedMatch] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { email: owner.email } }),
+    prisma.match.findUniqueOrThrow({ where: { matchNumber: lockedMatchNumber } })
+  ]);
+  await prisma.prediction.create({
+    data: {
+      userId: ownerUser.id,
+      matchId: lockedMatch.id,
+      homeGoals: 1,
+      awayGoals: 0
+    }
+  });
+
   await page.goto("/matches");
   const predictionForm = page.getByTestId(`prediction-form-${unlockedMatchNumber}`);
   await predictionForm.getByLabel("Home goals").fill("2");
@@ -104,9 +117,12 @@ test("signup/login, predictions, leagues, joining, leaderboard, and freeze", asy
   await expect(predictionForm.getByLabel("Home goals")).toHaveValue("3");
   await expect(predictionForm.getByLabel("Away goals")).toHaveValue("1");
 
-  const lockedForm = page.getByTestId(`prediction-form-${lockedMatchNumber}`);
-  await expect(lockedForm.getByLabel("Home goals")).toBeDisabled();
-  await expect(lockedForm.getByRole("button", { name: "Save" })).toBeDisabled();
+  const lockedBreakdown = page.getByTestId(`prediction-breakdown-${lockedMatchNumber}`);
+  await expect(lockedBreakdown.getByText("1")).toBeVisible();
+  await expect(lockedBreakdown.getByText("X")).toBeVisible();
+  await expect(lockedBreakdown.getByText("2")).toBeVisible();
+  await expect(lockedBreakdown.getByText("100%")).toBeVisible();
+  await expect(lockedBreakdown.getByText("Most common 1-0 · 1 bet")).toBeVisible();
 
   await page.goto("/picks");
   await expect(page.getByText("Locked").first()).toBeVisible();

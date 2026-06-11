@@ -14,6 +14,19 @@ import { SaveAllPredictionsButton } from "@/app/matches/save-all-predictions-but
 
 export const dynamic = "force-dynamic";
 
+type PredictionBreakdownItem = {
+  awayGoals: number;
+  count: number;
+  homeGoals: number;
+  percentage: number;
+};
+
+type OutcomeBreakdown = {
+  away: number;
+  draw: number;
+  home: number;
+};
+
 function statusBadge(status: string) {
   switch (status) {
     case "IN_PLAY":
@@ -70,6 +83,61 @@ export default async function MatchesPage() {
   const hasDynamicLeague = leagueMemberships.some(
     (membership) => membership.league.type === LeagueType.DYNAMIC
   );
+  const lockedMatchIds = matches
+    .filter((match) => isMatchLocked(match.kickoffAt))
+    .map((match) => match.id);
+  const predictionCounts =
+    lockedMatchIds.length > 0
+      ? await prisma.prediction.groupBy({
+          by: ["matchId", "homeGoals", "awayGoals"],
+          _count: { _all: true },
+          where: { matchId: { in: lockedMatchIds } },
+          orderBy: [{ homeGoals: "asc" }, { awayGoals: "asc" }]
+        })
+      : [];
+  const predictionBreakdowns = new Map<string, PredictionBreakdownItem[]>();
+  const predictionTotals = new Map<string, number>();
+
+  for (const row of predictionCounts) {
+    predictionTotals.set(row.matchId, (predictionTotals.get(row.matchId) ?? 0) + row._count._all);
+  }
+
+  for (const row of predictionCounts) {
+    const total = predictionTotals.get(row.matchId) ?? 0;
+    const breakdown = predictionBreakdowns.get(row.matchId) ?? [];
+    breakdown.push({
+      awayGoals: row.awayGoals,
+      count: row._count._all,
+      homeGoals: row.homeGoals,
+      percentage: total > 0 ? Math.round((row._count._all / total) * 100) : 0
+    });
+    predictionBreakdowns.set(row.matchId, breakdown);
+  }
+
+  for (const breakdown of predictionBreakdowns.values()) {
+    breakdown.sort(
+      (a, b) =>
+        b.count - a.count || a.homeGoals - b.homeGoals || a.awayGoals - b.awayGoals
+    );
+  }
+  const outcomeBreakdowns = new Map<string, OutcomeBreakdown>();
+
+  for (const [matchId, breakdown] of predictionBreakdowns) {
+    const total = predictionTotals.get(matchId) ?? 0;
+    const counts = { away: 0, draw: 0, home: 0 };
+
+    for (const item of breakdown) {
+      if (item.homeGoals > item.awayGoals) counts.home += item.count;
+      else if (item.homeGoals < item.awayGoals) counts.away += item.count;
+      else counts.draw += item.count;
+    }
+
+    outcomeBreakdowns.set(matchId, {
+      away: percentage(counts.away, total),
+      draw: percentage(counts.draw, total),
+      home: percentage(counts.home, total)
+    });
+  }
 
   const groups = new Map<string, typeof matches>();
   for (const match of matches) {
@@ -204,21 +272,37 @@ export default async function MatchesPage() {
                             ) : null}
                           </div>
 
-                          <PredictionForm
-                            key={`${match.id}:${prediction?.updatedAt.getTime() ?? 0}`}
-                            action={saveAction}
-                            awayScore90={match.awayScore90}
-                            disabled={disabled}
-                            draftKey={`tubets:prediction-draft:v1:${user.id}:${match.id}`}
-                            finished={finished}
-                            hasPrediction={Boolean(prediction)}
-                            homeScore90={match.homeScore90}
-                            initialAwayGoals={prediction?.awayGoals ?? null}
-                            initialHomeGoals={prediction?.homeGoals ?? null}
-                            points={prediction?.points ?? null}
-                            serverUpdatedAt={prediction?.updatedAt.getTime() ?? 0}
-                            testId={`prediction-form-${match.matchNumber ?? match.id}`}
-                          />
+                          {locked ? (
+                            <PredictionBreakdown
+                              awayScore90={match.awayScore90}
+                              breakdown={predictionBreakdowns.get(match.id) ?? []}
+                              finished={finished}
+                              hasPrediction={Boolean(prediction)}
+                              homeScore90={match.homeScore90}
+                              outcomeBreakdown={outcomeBreakdowns.get(match.id) ?? null}
+                              points={prediction?.points ?? null}
+                              testId={`prediction-breakdown-${
+                                match.matchNumber ?? match.id
+                              }`}
+                              total={predictionTotals.get(match.id) ?? 0}
+                            />
+                          ) : (
+                            <PredictionForm
+                              key={`${match.id}:${prediction?.updatedAt.getTime() ?? 0}`}
+                              action={saveAction}
+                              awayScore90={match.awayScore90}
+                              disabled={disabled}
+                              draftKey={`tubets:prediction-draft:v1:${user.id}:${match.id}`}
+                              finished={finished}
+                              hasPrediction={Boolean(prediction)}
+                              homeScore90={match.homeScore90}
+                              initialAwayGoals={prediction?.awayGoals ?? null}
+                              initialHomeGoals={prediction?.homeGoals ?? null}
+                              points={prediction?.points ?? null}
+                              serverUpdatedAt={prediction?.updatedAt.getTime() ?? 0}
+                              testId={`prediction-form-${match.matchNumber ?? match.id}`}
+                            />
+                          )}
                         </div>
                       );
                     })}
@@ -231,4 +315,79 @@ export default async function MatchesPage() {
       )}
     </main>
   );
+}
+
+function PredictionBreakdown({
+  awayScore90,
+  breakdown,
+  finished,
+  hasPrediction,
+  homeScore90,
+  outcomeBreakdown,
+  points,
+  testId,
+  total
+}: {
+  awayScore90: number | null;
+  breakdown: PredictionBreakdownItem[];
+  finished: boolean;
+  hasPrediction: boolean;
+  homeScore90: number | null;
+  outcomeBreakdown: OutcomeBreakdown | null;
+  points: number | null;
+  testId: string;
+  total: number;
+}) {
+  return (
+    <div data-testid={testId} className="flex flex-col items-end gap-2 text-right">
+      <div className="flex items-center justify-end gap-2">
+        {finished ? (
+          <div className="mr-1 text-right">
+            <p className="text-[10px] uppercase tracking-wider text-[--color-faint]">
+              Full time
+            </p>
+            <p className="font-mono text-base font-semibold text-[--color-text]">
+              {homeScore90}-{awayScore90}
+            </p>
+          </div>
+        ) : null}
+        {hasPrediction && finished ? (
+          <Badge tone={points && points > 0 ? "accent" : "muted"}>
+            {points && points > 0 ? `+${points}` : "0"} pts
+          </Badge>
+        ) : null}
+      </div>
+
+      {outcomeBreakdown ? (
+        <div className="grid grid-cols-3 overflow-hidden rounded-md border border-[--color-border] bg-[--color-surface-2] text-xs">
+          {[
+            ["1", outcomeBreakdown.home],
+            ["X", outcomeBreakdown.draw],
+            ["2", outcomeBreakdown.away]
+          ].map(([label, value]) => (
+            <span
+              key={label}
+              className="flex min-w-14 flex-col items-center border-r border-[--color-border] px-2 py-1 last:border-r-0"
+            >
+              <span className="font-mono font-semibold text-[--color-text]">{label}</span>
+              <span className="text-[--color-muted]">{value}%</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-[--color-faint]">No bets</p>
+      )}
+
+      {total > 0 ? (
+        <p className="text-[10px] uppercase tracking-wider text-[--color-faint]">
+          Most common {breakdown[0].homeGoals}-{breakdown[0].awayGoals} · {total}{" "}
+          {total === 1 ? "bet" : "bets"}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function percentage(count: number, total: number) {
+  return total > 0 ? Math.round((count / total) * 100) : 0;
 }
