@@ -87,9 +87,11 @@ export function SearchSelect({
       </div>
 
       {open && !disabled ? (
-        <div className="absolute left-0 right-0 top-11 z-20 max-h-72 overflow-y-auto rounded-md border border-[--color-border] bg-[--color-surface] shadow-2xl">
+        <div className="absolute left-0 right-0 top-11 z-20 max-h-72 overflow-y-auto rounded-md border border-[--color-border] bg-[#0f1011] shadow-2xl">
           {visibleOptions.length === 0 ? (
-            <p className="px-3 py-3 text-sm text-[--color-muted]">{emptyText}</p>
+            <p className="bg-[#0f1011] px-3 py-3 text-sm text-[--color-muted]">
+              {emptyText}
+            </p>
           ) : (
             visibleOptions.map((option) => {
               const selected = option.value === selectedValue;
@@ -97,7 +99,7 @@ export function SearchSelect({
                 <button
                   key={option.value}
                   type="button"
-                  className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-[--color-surface-2]"
+                  className="flex w-full items-center justify-between gap-3 bg-[#0f1011] px-3 py-2.5 text-left text-sm transition-colors hover:bg-[#16181a]"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => selectOption(option)}
                 >
