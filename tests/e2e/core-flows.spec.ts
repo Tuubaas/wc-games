@@ -68,6 +68,9 @@ test.beforeAll(async () => {
       }
     ]
   });
+  await prisma.player.create({
+    data: { name: `E2E Striker ${suffix}`, teamId: lockedHome.id }
+  });
 });
 
 test.afterAll(async () => {
@@ -104,6 +107,13 @@ test("signup/login, predictions, leagues, joining, leaderboard, and freeze", asy
   const lockedForm = page.getByTestId(`prediction-form-${lockedMatchNumber}`);
   await expect(lockedForm.getByLabel("Home goals")).toBeDisabled();
   await expect(lockedForm.getByRole("button", { name: "Save" })).toBeDisabled();
+
+  await page.goto("/picks");
+  await expect(page.getByText("Locked").first()).toBeVisible();
+  await expect(page.getByPlaceholder("Search countries")).toBeDisabled();
+  await expect(page.getByPlaceholder("Search players")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Lock in" }).first()).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Lock in" }).nth(1)).toBeDisabled();
 
   await page.goto("/dashboard");
   await expect(page.getByText("Submitted")).toBeVisible();
