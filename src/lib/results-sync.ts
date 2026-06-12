@@ -166,6 +166,23 @@ async function upsertMatch(item: FootballDataMatch) {
     where: { externalId }
   });
   if (existing) {
+    const seededDuplicate = await findSeededDuplicateMatch({
+      awayTeamId: awayTeam?.id,
+      existingMatchId: existing.id,
+      homeTeamId: homeTeam?.id,
+      kickoffAt,
+      stage
+    });
+
+    if (seededDuplicate) {
+      return mergeExternalMatchIntoSeededMatch({
+        existingExternalMatchId: existing.id,
+        resultData,
+        seededMatchId: seededDuplicate.id,
+        updateResult: existing.resultSource !== "admin"
+      });
+    }
+
     if (existing.resultSource === "admin") {
       return { match: existing, hasFullTimeScore: false };
     }
@@ -181,17 +198,14 @@ async function upsertMatch(item: FootballDataMatch) {
 
   const minuteBefore = new Date(kickoffAt.getTime() - 60_000);
   const minuteAfter = new Date(kickoffAt.getTime() + 60_000);
-  const seededMatch =
-    homeTeam && awayTeam
-      ? await prisma.match.findFirst({
-          where: {
-            externalId: null,
-            homeTeamId: homeTeam.id,
-            awayTeamId: awayTeam.id,
-            kickoffAt: { gte: minuteBefore, lte: minuteAfter }
-          }
-        })
-      : null;
+  const seededMatch = await findSeededDuplicateMatch({
+    awayTeamId: awayTeam?.id,
+    homeTeamId: homeTeam?.id,
+    kickoffAt,
+    stage,
+    windowEnd: minuteAfter,
+    windowStart: minuteBefore
+  });
 
   if (seededMatch) {
     if (seededMatch.resultSource === "admin") {
@@ -216,6 +230,143 @@ async function upsertMatch(item: FootballDataMatch) {
   return {
     match: await prisma.match.create({ data: resultData }),
     hasFullTimeScore
+  };
+}
+
+async function findSeededDuplicateMatch({
+  awayTeamId,
+  existingMatchId,
+  homeTeamId,
+  kickoffAt,
+  stage,
+  windowEnd,
+  windowStart
+}: {
+  awayTeamId?: string | null;
+  existingMatchId?: string;
+  homeTeamId?: string | null;
+  kickoffAt: Date;
+  stage: MatchStage;
+  windowEnd?: Date;
+  windowStart?: Date;
+}) {
+  if (!homeTeamId || !awayTeamId) return null;
+
+  const candidates = await prisma.match.findMany({
+    where: {
+      id: existingMatchId ? { not: existingMatchId } : undefined,
+      externalId: null,
+      homeTeamId,
+      awayTeamId,
+      stage,
+      kickoffAt:
+        windowStart && windowEnd
+          ? { gte: windowStart, lte: windowEnd }
+          : {
+              gte: new Date(kickoffAt.getTime() - 7 * 24 * 60 * 60 * 1000),
+              lte: new Date(kickoffAt.getTime() + 7 * 24 * 60 * 60 * 1000)
+            }
+    },
+    orderBy: { kickoffAt: "asc" }
+  });
+
+  if (candidates.length === 0) return null;
+  return candidates.sort(
+    (a, b) =>
+      Math.abs(a.kickoffAt.getTime() - kickoffAt.getTime()) -
+      Math.abs(b.kickoffAt.getTime() - kickoffAt.getTime())
+  )[0];
+}
+
+async function mergeExternalMatchIntoSeededMatch({
+  existingExternalMatchId,
+  resultData,
+  seededMatchId,
+  updateResult
+}: {
+  existingExternalMatchId: string;
+  resultData: {
+    awayScore90?: number | null;
+    awayTeamId?: string;
+    externalId: string;
+    groupName?: string;
+    homeScore90?: number | null;
+    homeTeamId?: string;
+    kickoffAt: Date;
+    resultSource?: string;
+    stage: MatchStage;
+    status: MatchStatus;
+  };
+  seededMatchId: string;
+  updateResult: boolean;
+}) {
+  const match = await prisma.$transaction(async (tx) => {
+    const [existingPredictions, existingClassicPredictions] = await Promise.all([
+      tx.prediction.findMany({ where: { matchId: existingExternalMatchId } }),
+      tx.classicPrediction.findMany({ where: { matchId: existingExternalMatchId } })
+    ]);
+
+    for (const prediction of existingPredictions) {
+      const duplicatePrediction = await tx.prediction.findUnique({
+        where: {
+          userId_matchId: {
+            userId: prediction.userId,
+            matchId: seededMatchId
+          }
+        }
+      });
+
+      if (duplicatePrediction) {
+        await tx.prediction.delete({ where: { id: prediction.id } });
+      } else {
+        await tx.prediction.update({
+          where: { id: prediction.id },
+          data: { matchId: seededMatchId }
+        });
+      }
+    }
+
+    for (const prediction of existingClassicPredictions) {
+      const duplicatePrediction = await tx.classicPrediction.findUnique({
+        where: {
+          leagueId_userId_matchId: {
+            leagueId: prediction.leagueId,
+            userId: prediction.userId,
+            matchId: seededMatchId
+          }
+        }
+      });
+
+      if (duplicatePrediction) {
+        await tx.classicPrediction.delete({ where: { id: prediction.id } });
+      } else {
+        await tx.classicPrediction.update({
+          where: { id: prediction.id },
+          data: { matchId: seededMatchId }
+        });
+      }
+    }
+
+    await tx.match.delete({ where: { id: existingExternalMatchId } });
+
+    return tx.match.update({
+      where: { id: seededMatchId },
+      data: updateResult
+        ? resultData
+        : {
+            externalId: resultData.externalId,
+            kickoffAt: resultData.kickoffAt,
+            stage: resultData.stage,
+            groupName: resultData.groupName,
+            homeTeamId: resultData.homeTeamId,
+            awayTeamId: resultData.awayTeamId
+          }
+    });
+  });
+
+  return {
+    match,
+    hasFullTimeScore: updateResult && resultData.resultSource === "football-data"
   };
 }
 
