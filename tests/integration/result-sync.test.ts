@@ -92,7 +92,7 @@ describe.runIf(runDbTests)("football-data result sync", () => {
       vi.fn(async () => {
         return new Response(
           JSON.stringify({
-            filters: { season: "2026" },
+            filters: { season: 2026 },
             matches: [
               {
                 id: 990001,
@@ -102,7 +102,7 @@ describe.runIf(runDbTests)("football-data result sync", () => {
                 group: "A",
                 homeTeam: { id: 111001, name: `${runId} Home`, tla: "TST" },
                 awayTeam: { id: 111002, name: `${runId} Away`, tla: "OPP" },
-                score: { fullTime: { home: 2, away: 1 } }
+                score: { fullTime: { homeTeam: 2, awayTeam: 1 } }
               }
             ]
           }),
@@ -140,7 +140,7 @@ describe.runIf(runDbTests)("football-data result sync", () => {
       vi.fn(async () => {
         return new Response(
           JSON.stringify({
-            filters: { season: "2026" },
+            filters: { season: 2026 },
             matches: [
               {
                 id: 990001,
@@ -150,7 +150,7 @@ describe.runIf(runDbTests)("football-data result sync", () => {
                 group: "A",
                 homeTeam: { id: 111001, name: `${runId} Home`, tla: "TST" },
                 awayTeam: { id: 111002, name: `${runId} Away`, tla: "OPP" },
-                score: { fullTime: { home: 4, away: 4 } }
+                score: { fullTime: { homeTeam: 4, awayTeam: 4 } }
               }
             ]
           }),

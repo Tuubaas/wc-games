@@ -8,6 +8,7 @@ import {
   removeMemberAction,
   updateLeagueTypeAction
 } from "@/lib/actions";
+import { isSiteAdmin } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { getLeaguePointTotals, rankRows } from "@/lib/leaderboard";
 import { requireUser } from "@/lib/session";
@@ -53,6 +54,8 @@ export default async function LeaguePage({
   if (!currentMember) redirect("/dashboard");
 
   const isAdmin = currentMember.role === LeagueRole.ADMIN;
+  const isOwner = league.createdById === user.id;
+  const canChangeLeagueType = isAdmin || isOwner || isSiteAdmin(user.email);
   const pointTotals = await getLeaguePointTotals(league);
   const rows = rankRows(
     league.members.map((member) => ({
@@ -61,7 +64,6 @@ export default async function LeaguePage({
       points: pointTotals.get(member.user.id) ?? 0
     }))
   );
-  const isOwner = league.createdById === user.id;
   const leaveLabel = isOwner ? "Delete league" : "Leave league";
   const typeChangeLocked = firstGroupMatch
     ? isMatchLocked(firstGroupMatch.kickoffAt)
@@ -148,7 +150,7 @@ export default async function LeaguePage({
               </Badge>
             </CardHeader>
             <CardBody>
-              {isAdmin ? (
+              {canChangeLeagueType ? (
                 <form
                   action={updateLeagueTypeAction.bind(null, league.id)}
                   className="space-y-3"
@@ -178,7 +180,8 @@ export default async function LeaguePage({
                 </form>
               ) : (
                 <p className="text-sm text-[--color-muted]">
-                  League type is managed by admins.
+                  League type is managed by admins, the creator, or app admins in
+                  the league.
                 </p>
               )}
             </CardBody>

@@ -13,7 +13,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { signIn, signOut, updateSession } from "@/auth";
-import { TOURNAMENT_ID } from "@/lib/config";
+import { isSiteAdmin, TOURNAMENT_ID } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { safeInternalPath } from "@/lib/redirect";
 import {
@@ -170,14 +170,18 @@ export async function leaveLeagueAction(leagueId: string) {
 
 export async function updateLeagueTypeAction(leagueId: string, formData: FormData) {
   const user = await requireUser({ nextPath: "/dashboard" });
-  await requireLeagueAdmin(leagueId, user.id);
-
-  const league = await prisma.league.findUnique({
-    where: { id: leagueId },
-    select: { inviteCode: true }
+  const member = await prisma.leagueMember.findUnique({
+    where: { leagueId_userId: { leagueId, userId: user.id } },
+    include: { league: { select: { createdById: true, inviteCode: true } } }
   });
-  if (!league) redirect("/dashboard");
-  if (await isGroupStageLockActive()) redirect(`/leagues/${league.inviteCode}`);
+  if (!member) redirect("/dashboard");
+
+  const canUpdateType =
+    member.role === LeagueRole.ADMIN ||
+    member.league.createdById === user.id ||
+    isSiteAdmin(user.email);
+  if (!canUpdateType) redirect(`/leagues/${member.league.inviteCode}`);
+  if (await isGroupStageLockActive()) redirect(`/leagues/${member.league.inviteCode}`);
 
   const type = z.nativeEnum(LeagueType).parse(formData.get("type"));
   await prisma.league.update({
@@ -188,7 +192,7 @@ export async function updateLeagueTypeAction(leagueId: string, formData: FormDat
   revalidatePath("/dashboard");
   revalidatePath("/leagues");
   revalidatePath("/matches");
-  revalidatePath(`/leagues/${league.inviteCode}`);
+  revalidatePath(`/leagues/${member.league.inviteCode}`);
 }
 
 export async function savePredictionAction(matchId: string, formData: FormData) {

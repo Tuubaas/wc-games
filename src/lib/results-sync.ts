@@ -12,6 +12,16 @@ const footballDataTeamSchema = z
   .nullable()
   .optional();
 
+const footballDataFullTimeScoreSchema = z
+  .object({
+    away: z.number().int().nullable().optional(),
+    awayTeam: z.number().int().nullable().optional(),
+    home: z.number().int().nullable().optional(),
+    homeTeam: z.number().int().nullable().optional()
+  })
+  .nullable()
+  .optional();
+
 const footballDataMatchSchema = z.object({
   id: z.number().int(),
   utcDate: z.string().refine((value) => !Number.isNaN(Date.parse(value))),
@@ -22,13 +32,7 @@ const footballDataMatchSchema = z.object({
   awayTeam: footballDataTeamSchema,
   score: z
     .object({
-      fullTime: z
-        .object({
-          home: z.number().int().nullable().optional(),
-          away: z.number().int().nullable().optional()
-        })
-        .nullable()
-        .optional()
+      fullTime: footballDataFullTimeScoreSchema
     })
     .nullable()
     .optional()
@@ -37,7 +41,10 @@ const footballDataMatchSchema = z.object({
 const footballDataPayloadSchema = z.object({
   filters: z
     .object({
-      season: z.string().optional()
+      season: z
+        .union([z.string(), z.number()])
+        .transform(String)
+        .optional()
     })
     .optional(),
   matches: z.array(footballDataMatchSchema).optional().default([])
@@ -45,6 +52,7 @@ const footballDataPayloadSchema = z.object({
 
 type FootballDataTeam = z.infer<typeof footballDataTeamSchema>;
 type FootballDataMatch = z.infer<typeof footballDataMatchSchema>;
+type FootballDataFullTimeScore = z.infer<typeof footballDataFullTimeScoreSchema>;
 
 function mapStatus(status: string): MatchStatus {
   if (status === "FINISHED") return MatchStatus.FINISHED;
@@ -75,6 +83,13 @@ function mapStage(stage?: string | null): MatchStage {
     default:
       return MatchStage.GROUP;
   }
+}
+
+function fullTimeScore(fullTime: FootballDataFullTimeScore) {
+  return {
+    away: fullTime?.away ?? fullTime?.awayTeam ?? null,
+    home: fullTime?.home ?? fullTime?.homeTeam ?? null
+  };
 }
 
 async function upsertTeam(team?: FootballDataTeam | null) {
@@ -126,7 +141,7 @@ async function upsertMatch(item: FootballDataMatch) {
   const status = mapStatus(item.status);
   const kickoffAt = new Date(item.utcDate);
   const stage = mapStage(item.stage);
-  const fullTime = item.score?.fullTime;
+  const fullTime = fullTimeScore(item.score?.fullTime);
   const hasFullTimeScore =
     status === MatchStatus.FINISHED &&
     typeof fullTime?.home === "number" &&
@@ -238,8 +253,18 @@ export async function syncFootballDataResults() {
   const rawPayload = await response.json();
   const parsedPayload = footballDataPayloadSchema.safeParse(rawPayload);
   if (!parsedPayload.success) {
-    await createSyncLog("failed", "football-data response did not match the expected shape.");
-    throw new Error("football-data response did not match the expected shape.");
+    const issue = parsedPayload.error.issues[0];
+    const detail = issue
+      ? `${issue.path.join(".") || "root"}: ${issue.message}`
+      : "unknown schema mismatch";
+    await createSyncLog(
+      "failed",
+      `football-data response did not match the expected shape: ${detail}`.slice(
+        0,
+        500
+      )
+    );
+    throw new Error(`football-data response did not match the expected shape: ${detail}`);
   }
 
   const payload = parsedPayload.data;
