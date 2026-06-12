@@ -8,7 +8,10 @@ const FIFA_TO_ISO2: Record<string, string> = {
   MEX: "MX", NED: "NL", NGA: "NG", NOR: "NO", PAR: "PY", PER: "PE",
   POL: "PL", POR: "PT", QAT: "QA", SAU: "SA", SEN: "SN", SRB: "RS",
   SUI: "CH", SVK: "SK", SWE: "SE", TUN: "TN", TUR: "TR", UKR: "UA",
-  URU: "UY", USA: "US", WAL: "GB", IRL: "IE", SCO: "GB", NZL: "NZ"
+  URU: "UY", USA: "US", WAL: "GB", IRL: "IE", SCO: "GB", NZL: "NZ",
+  ALG: "DZ", BIH: "BA", CIV: "CI", COD: "CD", CPV: "CV", CUW: "CW",
+  HAI: "HT", IRQ: "IQ", JOR: "JO", KSA: "SA", PAN: "PA", RSA: "ZA",
+  UZB: "UZ"
 };
 
 function isoToFlagEmoji(iso2: string): string {
