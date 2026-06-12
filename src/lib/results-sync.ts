@@ -54,6 +54,10 @@ type FootballDataTeam = z.infer<typeof footballDataTeamSchema>;
 type FootballDataMatch = z.infer<typeof footballDataMatchSchema>;
 type FootballDataFullTimeScore = z.infer<typeof footballDataFullTimeScoreSchema>;
 
+const FOOTBALL_DATA_TEAM_CODE_ALIASES: Record<string, string> = {
+  URY: "URU"
+};
+
 function mapStatus(status: string): MatchStatus {
   if (status === "FINISHED") return MatchStatus.FINISHED;
   if (status === "IN_PLAY" || status === "LIVE" || status === "PAUSED") {
@@ -92,12 +96,30 @@ function fullTimeScore(fullTime: FootballDataFullTimeScore) {
   };
 }
 
+function normalizeTeamCode(code?: string | null) {
+  const normalizedCode = code?.trim().toUpperCase();
+  if (!normalizedCode) return undefined;
+  return FOOTBALL_DATA_TEAM_CODE_ALIASES[normalizedCode] ?? normalizedCode;
+}
+
 async function upsertTeam(team?: FootballDataTeam | null) {
   if (!team?.id || !team.name || team.name === "TBD") return null;
   const externalId = String(team.id);
-  const fifaCode = team.tla || undefined;
+  const fifaCode = normalizeTeamCode(team.tla);
   const existingByExternalId = await prisma.team.findUnique({ where: { externalId } });
   if (existingByExternalId) {
+    if (fifaCode && existingByExternalId.fifaCode !== fifaCode) {
+      const existingByCode = await prisma.team.findUnique({ where: { fifaCode } });
+      if (existingByCode && existingByCode.id !== existingByExternalId.id) {
+        return mergeTeamIntoCanonicalTeam({
+          canonicalTeamId: existingByCode.id,
+          duplicateTeamId: existingByExternalId.id,
+          externalId,
+          name: team.name
+        });
+      }
+    }
+
     return prisma.team.update({
       where: { id: existingByExternalId.id },
       data: {
@@ -131,6 +153,78 @@ async function upsertTeam(team?: FootballDataTeam | null) {
       name: team.name,
       fifaCode
     }
+  });
+}
+
+async function mergeTeamIntoCanonicalTeam({
+  canonicalTeamId,
+  duplicateTeamId,
+  externalId,
+  name
+}: {
+  canonicalTeamId: string;
+  duplicateTeamId: string;
+  externalId: string;
+  name: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    await Promise.all([
+      tx.match.updateMany({
+        where: { homeTeamId: duplicateTeamId },
+        data: { homeTeamId: canonicalTeamId }
+      }),
+      tx.match.updateMany({
+        where: { awayTeamId: duplicateTeamId },
+        data: { awayTeamId: canonicalTeamId }
+      }),
+      tx.tournamentPick.updateMany({
+        where: { teamId: duplicateTeamId },
+        data: { teamId: canonicalTeamId }
+      }),
+      tx.tournamentResult.updateMany({
+        where: { winnerTeamId: duplicateTeamId },
+        data: { winnerTeamId: canonicalTeamId }
+      })
+    ]);
+
+    const duplicatePlayers = await tx.player.findMany({
+      where: { teamId: duplicateTeamId },
+      select: { id: true, name: true, position: true }
+    });
+    for (const player of duplicatePlayers) {
+      const existingPlayer = await tx.player.findUnique({
+        where: {
+          teamId_name: {
+            teamId: canonicalTeamId,
+            name: player.name
+          }
+        }
+      });
+
+      if (existingPlayer) {
+        await tx.tournamentPick.updateMany({
+          where: { playerId: player.id },
+          data: { playerId: existingPlayer.id }
+        });
+        await tx.tournamentTopScorerResult.updateMany({
+          where: { playerId: player.id },
+          data: { playerId: existingPlayer.id }
+        });
+        await tx.player.delete({ where: { id: player.id } });
+      } else {
+        await tx.player.update({
+          where: { id: player.id },
+          data: { teamId: canonicalTeamId }
+        });
+      }
+    }
+
+    await tx.team.delete({ where: { id: duplicateTeamId } });
+
+    return tx.team.update({
+      where: { id: canonicalTeamId },
+      data: { externalId, name }
+    });
   });
 }
 

@@ -6,6 +6,7 @@ const runDbTests = process.env.RUN_DB_TESTS === "true";
 const runId = `vitest_${Date.now()}`;
 const testStartedAt = new Date();
 const testMatchNumber = 880000 + Math.floor(Math.random() * 5000);
+const aliasMatchNumber = testMatchNumber + 1;
 
 let prisma: PrismaClient;
 let syncFootballDataResults: typeof import("@/lib/results-sync").syncFootballDataResults;
@@ -37,11 +38,14 @@ describe.runIf(runDbTests)("football-data result sync", () => {
     });
     await prisma.match.deleteMany({
       where: {
-        OR: [{ externalId: { startsWith: runId } }, { matchNumber: testMatchNumber }]
+        OR: [
+          { externalId: { startsWith: runId } },
+          { matchNumber: { in: [testMatchNumber, aliasMatchNumber] } }
+        ]
       }
     });
     await prisma.team.deleteMany({
-      where: { fifaCode: { in: ["TST", "OPP"] } }
+      where: { fifaCode: { in: ["TST", "OPP", "URU", "KSA", "URY"] } }
     });
     await prisma.resultSyncLog.deleteMany({
       where: { createdAt: { gte: testStartedAt } }
@@ -167,6 +171,79 @@ describe.runIf(runDbTests)("football-data result sync", () => {
     expect(protectedMatch.homeScore90).toBe(0);
     expect(protectedMatch.awayScore90).toBe(0);
     expect(protectedMatch.resultSource).toBe("admin");
+  });
+
+  it("normalizes football-data team aliases and merges duplicate fixtures", async () => {
+    const [uruguay, saudiArabia] = await Promise.all([
+      prisma.team.upsert({
+        where: { fifaCode: "URU" },
+        update: { name: `${runId} Uruguay`, externalId: null },
+        create: { name: `${runId} Uruguay`, fifaCode: "URU" }
+      }),
+      prisma.team.upsert({
+        where: { fifaCode: "KSA" },
+        update: { name: `${runId} Saudi Arabia`, externalId: null },
+        create: { name: `${runId} Saudi Arabia`, fifaCode: "KSA" }
+      })
+    ]);
+    const seededKickoffAt = new Date("2026-06-12T19:00:00.000Z");
+    await prisma.match.create({
+      data: {
+        matchNumber: aliasMatchNumber,
+        stage: MatchStage.GROUP,
+        groupName: "H",
+        kickoffAt: seededKickoffAt,
+        homeTeamId: saudiArabia.id,
+        awayTeamId: uruguay.id,
+        status: MatchStatus.SCHEDULED
+      }
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            filters: { season: 2026 },
+            matches: [
+              {
+                id: 990002,
+                utcDate: new Date("2026-06-13T19:00:00.000Z").toISOString(),
+                status: "SCHEDULED",
+                stage: "GROUP_STAGE",
+                group: "H",
+                homeTeam: { id: 222001, name: `${runId} Saudi Arabia`, tla: "KSA" },
+                awayTeam: { id: 222002, name: `${runId} Uruguay`, tla: "URY" },
+                score: { fullTime: { homeTeam: null, awayTeam: null } }
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      })
+    );
+
+    await syncFootballDataResults();
+
+    const [matches, canonicalUruguay, duplicateUruguay] = await Promise.all([
+      prisma.match.findMany({
+        where: {
+          OR: [
+            { matchNumber: aliasMatchNumber },
+            { externalId: "990002" }
+          ]
+        },
+        include: { awayTeam: true }
+      }),
+      prisma.team.findUnique({ where: { fifaCode: "URU" } }),
+      prisma.team.findUnique({ where: { fifaCode: "URY" } })
+    ]);
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0].externalId).toBe("990002");
+    expect(matches[0].awayTeam?.fifaCode).toBe("URU");
+    expect(canonicalUruguay?.externalId).toBe("222002");
+    expect(duplicateUruguay).toBeNull();
   });
 });
 
