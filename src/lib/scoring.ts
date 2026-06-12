@@ -59,13 +59,19 @@ export async function recalculateMatchPoints(matchId: string) {
     ...predictions.map((prediction) =>
       prisma.prediction.update({
         where: { id: prediction.id },
-        data: { points: scoreMatchPrediction(prediction, match) }
+        data: {
+          points: scoreMatchPrediction(prediction, match),
+          updatedAt: prediction.updatedAt
+        }
       })
     ),
     ...classicPredictions.map((prediction) =>
       prisma.classicPrediction.update({
         where: { id: prediction.id },
-        data: { points: scoreMatchPrediction(prediction, match) }
+        data: {
+          points: scoreMatchPrediction(prediction, match),
+          updatedAt: prediction.updatedAt
+        }
       })
     )
   ];

@@ -252,3 +252,10 @@ model ResultSyncLog {
   message   String?
   createdAt DateTime @default(now())
 }
+
+model AppSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

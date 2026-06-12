@@ -20,13 +20,16 @@ const baseMatchNumber = 890000 + Math.floor(Math.random() * 5000);
 const snapshotMatchNumber = baseMatchNumber;
 const dynamicFirstMatchNumber = baseMatchNumber + 1;
 const dynamicSecondMatchNumber = baseMatchNumber + 2;
+const classicFallbackMatchNumber = baseMatchNumber + 3;
 const teamCodes = [
   `LT${runId.slice(-4)}A`,
   `LT${runId.slice(-4)}B`,
   `LT${runId.slice(-4)}C`,
   `LT${runId.slice(-4)}D`,
   `LT${runId.slice(-4)}E`,
-  `LT${runId.slice(-4)}F`
+  `LT${runId.slice(-4)}F`,
+  `LT${runId.slice(-4)}G`,
+  `LT${runId.slice(-4)}H`
 ];
 
 let prisma: PrismaClient;
@@ -46,7 +49,12 @@ describe.runIf(runDbTests)("league type scoring", () => {
     await prisma.match.deleteMany({
       where: {
         matchNumber: {
-          in: [snapshotMatchNumber, dynamicFirstMatchNumber, dynamicSecondMatchNumber]
+          in: [
+            snapshotMatchNumber,
+            dynamicFirstMatchNumber,
+            dynamicSecondMatchNumber,
+            classicFallbackMatchNumber
+          ]
         }
       }
     });
@@ -292,6 +300,85 @@ describe.runIf(runDbTests)("league type scoring", () => {
     });
 
     expect(afterLaterBet.get(user.id)).toBe(16);
+  });
+
+  it("keeps classic-only fallback scoring after derived point recalculation changes timestamps", async () => {
+    const [homeTeam, awayTeam, user] = await Promise.all([
+      prisma.team.create({
+        data: { name: `${runId} Fallback Home`, fifaCode: teamCodes[6] }
+      }),
+      prisma.team.create({
+        data: { name: `${runId} Fallback Away`, fifaCode: teamCodes[7] }
+      }),
+      prisma.user.create({
+        data: {
+          email: `fallback.${runId}@example.test`,
+          username: `fallback_${runId}`
+        }
+      })
+    ]);
+
+    const match = await prisma.match.create({
+      data: {
+        matchNumber: classicFallbackMatchNumber,
+        stage: MatchStage.GROUP,
+        kickoffAt: new Date(Date.now() - 60 * 60 * 1000),
+        homeTeamId: homeTeam.id,
+        awayTeamId: awayTeam.id,
+        status: MatchStatus.SCHEDULED
+      }
+    });
+    const firstGroupMatch = await prisma.match.findFirstOrThrow({
+      where: { stage: MatchStage.GROUP },
+      orderBy: { kickoffAt: "asc" }
+    });
+    const lockTime = matchLockTime(firstGroupMatch.kickoffAt);
+    const beforeLock = new Date(lockTime.getTime() - 60 * 1000);
+    const afterLock = new Date(lockTime.getTime() + 60 * 1000);
+
+    const league = await prisma.league.create({
+      data: {
+        name: `${runId} Classic Fallback`,
+        type: LeagueType.CLASSIC,
+        inviteCode: `${runId}_classic_fallback`,
+        createdById: user.id
+      }
+    });
+    await prisma.leagueMember.create({
+      data: {
+        leagueId: league.id,
+        userId: user.id,
+        role: LeagueRole.ADMIN,
+        createdAt: beforeLock
+      }
+    });
+    await prisma.prediction.create({
+      data: {
+        userId: user.id,
+        matchId: match.id,
+        homeGoals: 2,
+        awayGoals: 1,
+        createdAt: beforeLock,
+        updatedAt: afterLock
+      }
+    });
+    await prisma.match.update({
+      where: { id: match.id },
+      data: {
+        status: MatchStatus.FINISHED,
+        homeScore90: 2,
+        awayScore90: 1
+      }
+    });
+    await recalculateMatchPoints(match.id);
+
+    const totals = await getLeaguePointTotals({
+      id: league.id,
+      type: LeagueType.CLASSIC,
+      members: [{ userId: user.id, createdAt: beforeLock }]
+    });
+
+    expect(totals.get(user.id)).toBe(8);
   });
 });
 

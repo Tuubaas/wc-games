@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireUser } from "@/lib/session";
 import { formatDateTime, isMatchLocked, matchLockTime } from "@/lib/time";
+import { areTournamentPicksReopened } from "@/lib/tournament-picks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,19 +18,21 @@ export const dynamic = "force-dynamic";
 export default async function PicksPage() {
   const user = await requireUser({ nextPath: "/picks" });
   const timeZone = await getUserTimeZone();
-  const [teams, players, picks, firstMatch] = await Promise.all([
+  const [teams, players, picks, firstMatch, picksReopened] = await Promise.all([
     prisma.team.findMany({ orderBy: { name: "asc" } }),
     prisma.player.findMany({
       include: { team: true },
       orderBy: [{ team: { name: "asc" } }, { name: "asc" }]
     }),
     prisma.tournamentPick.findMany({ where: { userId: user.id } }),
-    prisma.match.findFirst({ orderBy: { kickoffAt: "asc" } })
+    prisma.match.findFirst({ orderBy: { kickoffAt: "asc" } }),
+    areTournamentPicksReopened()
   ]);
 
   const winnerPick = picks.find((pick) => pick.type === TournamentPickType.WINNER);
   const scorerPick = picks.find((pick) => pick.type === TournamentPickType.TOP_SCORER);
-  const locked = firstMatch ? isMatchLocked(firstMatch.kickoffAt) : false;
+  const naturallyLocked = firstMatch ? isMatchLocked(firstMatch.kickoffAt) : false;
+  const locked = naturallyLocked && !picksReopened;
   const lockMoment = firstMatch ? matchLockTime(firstMatch.kickoffAt) : null;
   const teamOptions = teams.map((team) => ({
     value: team.id,
@@ -49,7 +52,9 @@ export default async function PicksPage() {
         title="Pre-tournament picks"
         description="Two bets that lock at the first kickoff. Big points if you nail them."
         action={
-          locked ? (
+          picksReopened ? (
+            <Badge tone="accent">Open by admin</Badge>
+          ) : locked ? (
             <Badge tone="danger">
               <Lock size={11} />
               Locked

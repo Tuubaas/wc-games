@@ -15,6 +15,7 @@ import {
   recalculateAllAction,
   removeTopScorerResultAction,
   setTournamentWinnerAction,
+  setTournamentPicksReopenedAction,
   syncResultsAction,
   updateAllMatchResultsAction
 } from "@/lib/actions";
@@ -23,6 +24,7 @@ import { prisma } from "@/lib/db";
 import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireSiteAdmin } from "@/lib/session";
 import { formatDateTime } from "@/lib/time";
+import { areTournamentPicksReopened } from "@/lib/tournament-picks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,10 +42,16 @@ const MATCH_STATUS_OPTIONS = [
   ["CANCELLED", "Cancelled"]
 ] as const;
 
-export default async function AdminPage() {
+export default async function AdminPage({
+  searchParams
+}: {
+  searchParams?: Promise<{ sync?: string }>;
+}) {
+  const sync = (await searchParams)?.sync;
+  const syncStatus = sync === "ok" || sync === "failed" ? sync : null;
   await requireSiteAdmin("/admin");
   const timeZone = await getUserTimeZone();
-  const [matches, teams, players, tournamentResult, logs, leagues] =
+  const [matches, teams, players, tournamentResult, logs, leagues, picksReopened] =
     await Promise.all([
       prisma.match.findMany({
         include: { homeTeam: true, awayTeam: true },
@@ -67,7 +75,8 @@ export default async function AdminPage() {
           _count: { select: { members: true } }
         },
         orderBy: { createdAt: "desc" }
-      })
+      }),
+      areTournamentPicksReopened()
     ]);
   const topScorers = tournamentResult?.topScorers ?? [];
   const leagueSummaries = leagues.map((league) => ({
@@ -108,6 +117,19 @@ export default async function AdminPage() {
           </div>
         }
       />
+
+      {syncStatus === "ok" || syncStatus === "failed" ? (
+        <div className="mt-6 rounded-md border border-[--color-border] bg-[--color-surface] px-4 py-3">
+          <Badge tone={syncStatus === "ok" ? "accent" : "danger"}>
+            {syncStatus === "ok" ? "Sync finished" : "Sync failed"}
+          </Badge>
+          <p className="mt-2 text-sm text-[--color-muted]">
+            {syncStatus === "ok"
+              ? "Results sync completed. Latest details are in the sync log."
+              : "Results sync failed. Check the sync log below for the exact error."}
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-10 grid gap-6 lg:grid-cols-2">
         <Card>
@@ -191,6 +213,30 @@ export default async function AdminPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>Tournament picks</CardTitle>
+            <Badge tone={picksReopened ? "accent" : "muted"}>
+              {picksReopened ? "Open" : "Normal lock"}
+            </Badge>
+          </CardHeader>
+          <CardBody>
+            <p className="mb-4 text-sm text-[--color-muted]">
+              Override the tournament winner and top scorer lock only.
+            </p>
+            <form action={setTournamentPicksReopenedAction}>
+              <input
+                type="hidden"
+                name="reopened"
+                value={picksReopened ? "false" : "true"}
+              />
+              <Button type="submit" variant={picksReopened ? "danger" : "secondary"}>
+                {picksReopened ? "Close picks" : "Open picks"}
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <div className="flex items-center gap-2">
               <Database size={15} className="text-[--color-muted]" />
               <CardTitle>Sync log</CardTitle>
@@ -210,7 +256,15 @@ export default async function AdminPage() {
                     className="flex items-center justify-between gap-3 px-5 py-3"
                   >
                     <div>
-                      <Badge tone={log.status === "OK" ? "accent" : "danger"}>
+                      <Badge
+                        tone={
+                          log.status === "ok"
+                            ? "accent"
+                            : log.status === "skipped"
+                            ? "muted"
+                            : "danger"
+                        }
+                      >
                         {log.status}
                       </Badge>
                       <p className="mt-1 text-xs text-[--color-muted]">{log.message}</p>

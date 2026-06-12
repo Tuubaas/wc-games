@@ -72,7 +72,8 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
     groupPredictions,
     classicPredictions,
     nonGroupPredictions,
-    pickTotals
+    pickTotals,
+    dynamicMemberships
   ] = await Promise.all([
     prisma.match.findFirst({
       where: { stage: MatchStage.GROUP },
@@ -88,7 +89,8 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
         awayTeamId: true,
         homeScore90: true,
         awayScore90: true,
-        status: true
+        status: true,
+        updatedAt: true
       },
       orderBy: { kickoffAt: "asc" }
     }),
@@ -98,6 +100,7 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
         match: { stage: MatchStage.GROUP }
       },
       select: {
+        createdAt: true,
         userId: true,
         matchId: true,
         homeGoals: true,
@@ -123,7 +126,14 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
       },
       select: { userId: true, points: true }
     }),
-    getTournamentPickTotals(userIds)
+    getTournamentPickTotals(userIds),
+    prisma.leagueMember.findMany({
+      where: {
+        userId: { in: userIds },
+        league: { type: LeagueType.DYNAMIC }
+      },
+      select: { userId: true }
+    })
   ]);
 
   for (const prediction of nonGroupPredictions) {
@@ -150,6 +160,9 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
       prediction
     ])
   );
+  const dynamicUserIds = new Set(
+    dynamicMemberships.map((membership) => membership.userId)
+  );
   const actualScores = groupMatches
     .filter(
       (match) =>
@@ -170,9 +183,19 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
       const key = userMatchKey(member.userId, match.id);
       const classicPrediction = classicPredictionsByUserMatch.get(key);
       const prediction = groupPredictionsByUserMatch.get(key);
+      const createdBeforeLock =
+        prediction && prediction.createdAt.getTime() <= lockMs;
+      const recalculatedNearResultUpdate =
+        prediction &&
+        Math.abs(prediction.updatedAt.getTime() - match.updatedAt.getTime()) <= 5 * 60_000;
+      const eligibleFallbackPrediction =
+        prediction &&
+        (prediction.updatedAt.getTime() <= lockMs ||
+          (createdBeforeLock &&
+            (!dynamicUserIds.has(member.userId) || recalculatedNearResultUpdate)));
       const frozenPrediction =
         classicPrediction ??
-        (prediction && prediction.updatedAt.getTime() <= lockMs ? prediction : null);
+        (eligibleFallbackPrediction ? prediction : null);
 
       if (!frozenPrediction) continue;
 

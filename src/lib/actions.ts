@@ -24,6 +24,10 @@ import {
 } from "@/lib/scoring";
 import { requireSiteAdmin, requireUser } from "@/lib/session";
 import { isMatchLocked } from "@/lib/time";
+import {
+  areTournamentPicksLocked,
+  setTournamentPicksReopened
+} from "@/lib/tournament-picks";
 import { syncFootballDataResults } from "@/lib/results-sync";
 
 const usernameSchema = z
@@ -440,8 +444,23 @@ export async function removeTopScorerResultAction(playerId: string) {
 
 export async function syncResultsAction() {
   await requireSiteAdmin("/admin");
-  await syncFootballDataResults();
+  try {
+    await syncFootballDataResults();
+  } catch {
+    revalidateScoreViews();
+    redirect("/admin?sync=failed");
+  }
   revalidateScoreViews();
+  redirect("/admin?sync=ok");
+}
+
+export async function setTournamentPicksReopenedAction(formData: FormData) {
+  await requireSiteAdmin("/admin");
+  const reopened = formData.get("reopened") === "true";
+  await setTournamentPicksReopened(reopened);
+
+  revalidatePath("/admin");
+  revalidatePath("/picks");
 }
 
 export async function recalculateAllAction() {
@@ -481,10 +500,4 @@ async function isGroupStageLockActive() {
     select: { kickoffAt: true }
   });
   return firstGroupMatch ? isMatchLocked(firstGroupMatch.kickoffAt) : false;
-}
-
-async function areTournamentPicksLocked() {
-  const firstMatch = await prisma.match.findFirst({ orderBy: { kickoffAt: "asc" } });
-  if (!firstMatch) return false;
-  return isMatchLocked(firstMatch.kickoffAt);
 }

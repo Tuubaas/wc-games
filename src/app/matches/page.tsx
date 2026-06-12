@@ -281,6 +281,8 @@ export default async function MatchesPage() {
                               homeScore90={match.homeScore90}
                               outcomeBreakdown={outcomeBreakdowns.get(match.id) ?? null}
                               points={prediction?.points ?? null}
+                              predictionAwayGoals={prediction?.awayGoals ?? null}
+                              predictionHomeGoals={prediction?.homeGoals ?? null}
                               testId={`prediction-breakdown-${
                                 match.matchNumber ?? match.id
                               }`}
@@ -325,6 +327,8 @@ function PredictionBreakdown({
   homeScore90,
   outcomeBreakdown,
   points,
+  predictionAwayGoals,
+  predictionHomeGoals,
   testId,
   total
 }: {
@@ -335,12 +339,28 @@ function PredictionBreakdown({
   homeScore90: number | null;
   outcomeBreakdown: OutcomeBreakdown | null;
   points: number | null;
+  predictionAwayGoals: number | null;
+  predictionHomeGoals: number | null;
   testId: string;
   total: number;
 }) {
+  const hasOwnPrediction = predictionHomeGoals !== null && predictionAwayGoals !== null;
+
   return (
     <div data-testid={testId} className="flex flex-col items-end gap-2 text-right">
       <div className="flex items-center justify-end gap-2">
+        {hasOwnPrediction ? (
+          <div className="mr-1 text-right">
+            <p className="text-[10px] uppercase tracking-wider text-[--color-faint]">
+              Your bet
+            </p>
+            <p className="font-mono text-base font-semibold text-[--color-text]">
+              {predictionHomeGoals}-{predictionAwayGoals}
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-[--color-faint]">No bet</p>
+        )}
         {finished ? (
           <div className="mr-1 text-right">
             <p className="text-[10px] uppercase tracking-wider text-[--color-faint]">

@@ -118,6 +118,8 @@ test("signup/login, predictions, leagues, joining, leaderboard, and freeze", asy
   await expect(predictionForm.getByLabel("Away goals")).toHaveValue("1");
 
   const lockedBreakdown = page.getByTestId(`prediction-breakdown-${lockedMatchNumber}`);
+  await expect(lockedBreakdown.getByText("Your bet")).toBeVisible();
+  await expect(lockedBreakdown.getByText("1-0")).toBeVisible();
   await expect(lockedBreakdown.getByText("1")).toBeVisible();
   await expect(lockedBreakdown.getByText("X")).toBeVisible();
   await expect(lockedBreakdown.getByText("2")).toBeVisible();
