@@ -17,6 +17,7 @@ import { isSiteAdmin, TOURNAMENT_ID } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { safeInternalPath } from "@/lib/redirect";
 import {
+  freezeAllClassicGroupPredictions,
   freezeClassicGroupPredictionsForUser,
   recalculateAllPoints,
   recalculateMatchPoints,
@@ -452,6 +453,16 @@ export async function syncResultsAction() {
   }
   revalidateScoreViews();
   redirect("/admin?sync=ok");
+}
+
+export async function freezeClassicSnapshotsAction() {
+  await requireSiteAdmin("/admin");
+  const result = await freezeAllClassicGroupPredictions();
+  revalidateScoreViews();
+  const freezeStatus = result.skipped ? "skipped" : "ok";
+  redirect(
+    `/admin?freeze=${freezeStatus}&created=${result.created}&candidates=${result.candidates}`
+  );
 }
 
 export async function setTournamentPicksReopenedAction(formData: FormData) {

@@ -73,7 +73,6 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
     classicPredictions,
     nonGroupPredictions,
     pickTotals,
-    dynamicMemberships
   ] = await Promise.all([
     prisma.match.findFirst({
       where: { stage: MatchStage.GROUP },
@@ -89,8 +88,7 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
         awayTeamId: true,
         homeScore90: true,
         awayScore90: true,
-        status: true,
-        updatedAt: true
+        status: true
       },
       orderBy: { kickoffAt: "asc" }
     }),
@@ -105,8 +103,7 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
         matchId: true,
         homeGoals: true,
         awayGoals: true,
-        points: true,
-        updatedAt: true
+        points: true
       }
     }),
     prisma.classicPrediction.findMany({
@@ -126,14 +123,7 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
       },
       select: { userId: true, points: true }
     }),
-    getTournamentPickTotals(userIds),
-    prisma.leagueMember.findMany({
-      where: {
-        userId: { in: userIds },
-        league: { type: LeagueType.DYNAMIC }
-      },
-      select: { userId: true }
-    })
+    getTournamentPickTotals(userIds)
   ]);
 
   for (const prediction of nonGroupPredictions) {
@@ -145,9 +135,6 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
 
   const lockTime = matchLockTime(firstGroupMatch.kickoffAt);
   const lockMs = lockTime.getTime();
-  const eligibleMembers = league.members.filter(
-    (member) => member.createdAt.getTime() <= lockMs
-  );
   const groupPredictionsByUserMatch = new Map(
     groupPredictions.map((prediction) => [
       userMatchKey(prediction.userId, prediction.matchId),
@@ -159,9 +146,6 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
       userMatchKey(prediction.userId, prediction.matchId),
       prediction
     ])
-  );
-  const dynamicUserIds = new Set(
-    dynamicMemberships.map((membership) => membership.userId)
   );
   const actualScores = groupMatches
     .filter(
@@ -176,23 +160,15 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
       awayGoals: match.awayScore90 as number
     }));
 
-  for (const member of eligibleMembers) {
+  for (const member of league.members) {
     const predictedScores = [];
 
     for (const match of groupMatches) {
       const key = userMatchKey(member.userId, match.id);
       const classicPrediction = classicPredictionsByUserMatch.get(key);
       const prediction = groupPredictionsByUserMatch.get(key);
-      const createdBeforeLock =
-        prediction && prediction.createdAt.getTime() <= lockMs;
-      const recalculatedNearResultUpdate =
-        prediction &&
-        Math.abs(prediction.updatedAt.getTime() - match.updatedAt.getTime()) <= 5 * 60_000;
       const eligibleFallbackPrediction =
-        prediction &&
-        (prediction.updatedAt.getTime() <= lockMs ||
-          (createdBeforeLock &&
-            (!dynamicUserIds.has(member.userId) || recalculatedNearResultUpdate)));
+        prediction && prediction.createdAt.getTime() <= lockMs;
       const frozenPrediction =
         classicPrediction ??
         (eligibleFallbackPrediction ? prediction : null);

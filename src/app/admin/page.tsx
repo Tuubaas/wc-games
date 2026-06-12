@@ -12,6 +12,7 @@ import {
   addTopScorerResultAction,
   createPlayerAction,
   createTeamAction,
+  freezeClassicSnapshotsAction,
   recalculateAllAction,
   removeTopScorerResultAction,
   setTournamentWinnerAction,
@@ -23,7 +24,7 @@ import { TOURNAMENT_ID } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireSiteAdmin } from "@/lib/session";
-import { formatDateTime } from "@/lib/time";
+import { formatDateTime, isMatchLocked, matchLockTime } from "@/lib/time";
 import { areTournamentPicksReopened } from "@/lib/tournament-picks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,13 +46,29 @@ const MATCH_STATUS_OPTIONS = [
 export default async function AdminPage({
   searchParams
 }: {
-  searchParams?: Promise<{ sync?: string }>;
+  searchParams?: Promise<{
+    candidates?: string;
+    created?: string;
+    freeze?: string;
+    sync?: string;
+  }>;
 }) {
-  const sync = (await searchParams)?.sync;
-  const syncStatus = sync === "ok" || sync === "failed" ? sync : null;
+  const params = await searchParams;
+  const syncStatus = params?.sync === "ok" || params?.sync === "failed" ? params.sync : null;
+  const freezeStatus =
+    params?.freeze === "ok" || params?.freeze === "skipped" ? params.freeze : null;
   await requireSiteAdmin("/admin");
   const timeZone = await getUserTimeZone();
-  const [matches, teams, players, tournamentResult, logs, leagues, picksReopened] =
+  const [
+    matches,
+    teams,
+    players,
+    tournamentResult,
+    logs,
+    leagues,
+    picksReopened,
+    firstGroupMatch
+  ] =
     await Promise.all([
       prisma.match.findMany({
         include: { homeTeam: true, awayTeam: true },
@@ -76,8 +93,19 @@ export default async function AdminPage({
         },
         orderBy: { createdAt: "desc" }
       }),
-      areTournamentPicksReopened()
+      areTournamentPicksReopened(),
+      prisma.match.findFirst({
+        where: { stage: "GROUP" },
+        orderBy: { kickoffAt: "asc" },
+        select: { kickoffAt: true }
+      })
     ]);
+  const classicSnapshotLockAt = firstGroupMatch
+    ? matchLockTime(firstGroupMatch.kickoffAt)
+    : null;
+  const canFreezeClassicSnapshots = firstGroupMatch
+    ? isMatchLocked(firstGroupMatch.kickoffAt)
+    : false;
   const topScorers = tournamentResult?.topScorers ?? [];
   const leagueSummaries = leagues.map((league) => ({
     id: league.id,
@@ -127,6 +155,21 @@ export default async function AdminPage({
             {syncStatus === "ok"
               ? "Results sync completed. Latest details are in the sync log."
               : "Results sync failed. Check the sync log below for the exact error."}
+          </p>
+        </div>
+      ) : null}
+
+      {freezeStatus ? (
+        <div className="mt-6 rounded-md border border-[--color-border] bg-[--color-surface] px-4 py-3">
+          <Badge tone={freezeStatus === "ok" ? "accent" : "muted"}>
+            {freezeStatus === "ok" ? "Classic snapshots saved" : "Classic freeze skipped"}
+          </Badge>
+          <p className="mt-2 text-sm text-[--color-muted]">
+            {freezeStatus === "ok"
+              ? `Created ${params?.created ?? "0"} missing snapshot rows from ${
+                  params?.candidates ?? "0"
+                } eligible classic prediction rows. Existing snapshots were left unchanged.`
+              : "The first group-stage lock is not active yet."}
           </p>
         </div>
       ) : null}
@@ -230,6 +273,36 @@ export default async function AdminPage({
               />
               <Button type="submit" variant={picksReopened ? "danger" : "secondary"}>
                 {picksReopened ? "Close picks" : "Open picks"}
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database size={15} className="text-[--color-muted]" />
+              <CardTitle>Classic snapshots</CardTitle>
+            </div>
+            <Badge tone="muted">One-way</Badge>
+          </CardHeader>
+          <CardBody>
+            <p className="mb-4 text-sm text-[--color-muted]">
+              Save eligible group-stage predictions for classic leagues. Existing
+              snapshots are never overwritten.
+            </p>
+            {classicSnapshotLockAt ? (
+              <p className="mb-4 text-xs text-[--color-faint]">
+                Available after {formatDateTime(classicSnapshotLockAt, timeZone)}.
+              </p>
+            ) : null}
+            <form action={freezeClassicSnapshotsAction}>
+              <Button
+                type="submit"
+                variant="secondary"
+                disabled={!canFreezeClassicSnapshots}
+              >
+                Freeze missing snapshots
               </Button>
             </form>
           </CardBody>

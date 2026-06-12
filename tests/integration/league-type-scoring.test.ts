@@ -8,6 +8,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getLeaguePointTotals } from "@/lib/leaderboard";
 import {
+  freezeAllClassicGroupPredictions,
   freezeClassicGroupPredictionsForUser,
   recalculateMatchPoints
 } from "@/lib/scoring";
@@ -21,6 +22,7 @@ const snapshotMatchNumber = baseMatchNumber;
 const dynamicFirstMatchNumber = baseMatchNumber + 1;
 const dynamicSecondMatchNumber = baseMatchNumber + 2;
 const classicFallbackMatchNumber = baseMatchNumber + 3;
+const adminFreezeMatchNumber = baseMatchNumber + 4;
 const teamCodes = [
   `LT${runId.slice(-4)}A`,
   `LT${runId.slice(-4)}B`,
@@ -29,7 +31,9 @@ const teamCodes = [
   `LT${runId.slice(-4)}E`,
   `LT${runId.slice(-4)}F`,
   `LT${runId.slice(-4)}G`,
-  `LT${runId.slice(-4)}H`
+  `LT${runId.slice(-4)}H`,
+  `LT${runId.slice(-4)}I`,
+  `LT${runId.slice(-4)}J`
 ];
 
 let prisma: PrismaClient;
@@ -53,7 +57,8 @@ describe.runIf(runDbTests)("league type scoring", () => {
             snapshotMatchNumber,
             dynamicFirstMatchNumber,
             dynamicSecondMatchNumber,
-            classicFallbackMatchNumber
+            classicFallbackMatchNumber,
+            adminFreezeMatchNumber
           ]
         }
       }
@@ -349,7 +354,7 @@ describe.runIf(runDbTests)("league type scoring", () => {
         leagueId: league.id,
         userId: user.id,
         role: LeagueRole.ADMIN,
-        createdAt: beforeLock
+        createdAt: afterLock
       }
     });
     await prisma.prediction.create({
@@ -379,6 +384,136 @@ describe.runIf(runDbTests)("league type scoring", () => {
     });
 
     expect(totals.get(user.id)).toBe(8);
+  });
+
+  it("bulk-freezes current classic predictions without overwriting existing snapshots", async () => {
+    const [homeTeam, awayTeam, user, changedUser] = await Promise.all([
+      prisma.team.create({
+        data: { name: `${runId} Freeze Home`, fifaCode: teamCodes[8] }
+      }),
+      prisma.team.create({
+        data: { name: `${runId} Freeze Away`, fifaCode: teamCodes[9] }
+      }),
+      prisma.user.create({
+        data: {
+          email: `freeze.${runId}@example.test`,
+          username: `freeze_${runId}`
+        }
+      }),
+      prisma.user.create({
+        data: {
+          email: `changed-freeze.${runId}@example.test`,
+          username: `changed_freeze_${runId}`
+        }
+      })
+    ]);
+
+    const match = await prisma.match.create({
+      data: {
+        matchNumber: adminFreezeMatchNumber,
+        stage: MatchStage.GROUP,
+        kickoffAt: new Date(Date.now() - 60 * 60 * 1000),
+        homeTeamId: homeTeam.id,
+        awayTeamId: awayTeam.id,
+        status: MatchStatus.SCHEDULED
+      }
+    });
+    const firstGroupMatch = await prisma.match.findFirstOrThrow({
+      where: { stage: MatchStage.GROUP },
+      orderBy: { kickoffAt: "asc" }
+    });
+    const lockTime = matchLockTime(firstGroupMatch.kickoffAt);
+    const beforeLock = new Date(lockTime.getTime() - 60 * 1000);
+    const league = await prisma.league.create({
+      data: {
+        name: `${runId} Admin Freeze`,
+        type: LeagueType.CLASSIC,
+        inviteCode: `${runId}_admin_freeze`,
+        createdById: user.id
+      }
+    });
+    await prisma.leagueMember.create({
+      data: {
+        leagueId: league.id,
+        userId: user.id,
+        role: LeagueRole.ADMIN,
+        createdAt: beforeLock
+      }
+    });
+    await prisma.leagueMember.create({
+      data: {
+        leagueId: league.id,
+        userId: changedUser.id,
+        role: LeagueRole.MEMBER,
+        createdAt: beforeLock
+      }
+    });
+    await prisma.prediction.create({
+      data: {
+        userId: user.id,
+        matchId: match.id,
+        homeGoals: 1,
+        awayGoals: 0,
+        createdAt: beforeLock,
+        updatedAt: beforeLock
+      }
+    });
+    await prisma.prediction.create({
+      data: {
+        userId: changedUser.id,
+        matchId: match.id,
+        homeGoals: 2,
+        awayGoals: 0,
+        createdAt: beforeLock,
+        updatedAt: beforeLock
+      }
+    });
+    await prisma.prediction.update({
+      where: { userId_matchId: { userId: changedUser.id, matchId: match.id } },
+      data: { homeGoals: 5, awayGoals: 5 }
+    });
+
+    const beforeLockFreeze = await freezeAllClassicGroupPredictions(
+      new Date(lockTime.getTime() - 1)
+    );
+    const firstFreeze = await freezeAllClassicGroupPredictions();
+    await prisma.prediction.update({
+      where: { userId_matchId: { userId: user.id, matchId: match.id } },
+      data: { homeGoals: 4, awayGoals: 4 }
+    });
+    const secondFreeze = await freezeAllClassicGroupPredictions();
+
+    const [snapshots, frozenPrediction] = await Promise.all([
+      prisma.classicPrediction.count({
+        where: { leagueId: league.id, userId: user.id, matchId: match.id }
+      }),
+      prisma.classicPrediction.findUniqueOrThrow({
+        where: {
+          leagueId_userId_matchId: {
+            leagueId: league.id,
+            userId: user.id,
+            matchId: match.id
+          }
+        }
+      })
+    ]);
+    const changedSnapshot = await prisma.classicPrediction.findUnique({
+      where: {
+        leagueId_userId_matchId: {
+          leagueId: league.id,
+          userId: changedUser.id,
+          matchId: match.id
+        }
+      }
+    });
+
+    expect(beforeLockFreeze.skipped).toBe("not-locked");
+    expect(firstFreeze.created).toBeGreaterThanOrEqual(1);
+    expect(secondFreeze.created).toBe(0);
+    expect(snapshots).toBe(1);
+    expect(frozenPrediction.homeGoals).toBe(1);
+    expect(frozenPrediction.awayGoals).toBe(0);
+    expect(changedSnapshot).toBeNull();
   });
 });
 

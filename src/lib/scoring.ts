@@ -102,6 +102,7 @@ export async function freezeClassicGroupPredictionsForUser(userId: string) {
     prisma.prediction.findMany({
       where: {
         userId,
+        createdAt: { lte: lockTime },
         updatedAt: { lte: lockTime },
         match: { stage: MatchStage.GROUP }
       },
@@ -124,6 +125,73 @@ export async function freezeClassicGroupPredictionsForUser(userId: string) {
     ),
     skipDuplicates: true
   });
+}
+
+export async function freezeAllClassicGroupPredictions(now = new Date()) {
+  const firstGroupMatch = await prisma.match.findFirst({
+    where: { stage: MatchStage.GROUP },
+    orderBy: { kickoffAt: "asc" }
+  });
+
+  if (!firstGroupMatch) {
+    return { candidates: 0, created: 0, skipped: "no-group-match" };
+  }
+  if (!isMatchLocked(firstGroupMatch.kickoffAt, now)) {
+    return { candidates: 0, created: 0, skipped: "not-locked" };
+  }
+
+  const lockTime = matchLockTime(firstGroupMatch.kickoffAt);
+  const [memberships, predictions] = await Promise.all([
+    prisma.leagueMember.findMany({
+      where: {
+        createdAt: { lte: lockTime },
+        league: { type: LeagueType.CLASSIC }
+      },
+      select: { leagueId: true, userId: true }
+    }),
+    prisma.prediction.findMany({
+      where: {
+        createdAt: { lte: lockTime },
+        updatedAt: { lte: lockTime },
+        match: { stage: MatchStage.GROUP }
+      },
+      include: { match: true }
+    })
+  ]);
+
+  if (memberships.length === 0 || predictions.length === 0) {
+    return { candidates: 0, created: 0, skipped: null };
+  }
+
+  const membershipsByUser = new Map<string, string[]>();
+  for (const membership of memberships) {
+    const leagueIds = membershipsByUser.get(membership.userId) ?? [];
+    leagueIds.push(membership.leagueId);
+    membershipsByUser.set(membership.userId, leagueIds);
+  }
+
+  const snapshotRows = predictions.flatMap((prediction) => {
+    const leagueIds = membershipsByUser.get(prediction.userId) ?? [];
+    return leagueIds.map((leagueId) => ({
+      leagueId,
+      userId: prediction.userId,
+      matchId: prediction.matchId,
+      homeGoals: prediction.homeGoals,
+      awayGoals: prediction.awayGoals,
+      points: scoreMatchPrediction(prediction, prediction.match)
+    }));
+  });
+
+  if (snapshotRows.length === 0) {
+    return { candidates: 0, created: 0, skipped: null };
+  }
+
+  const result = await prisma.classicPrediction.createMany({
+    data: snapshotRows,
+    skipDuplicates: true
+  });
+
+  return { candidates: snapshotRows.length, created: result.count, skipped: null };
 }
 
 export async function recalculateTournamentPoints() {
