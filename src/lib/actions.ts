@@ -75,6 +75,39 @@ export async function completeOnboardingAction(formData: FormData) {
   redirect(next);
 }
 
+export async function updateUsernameAction(formData: FormData) {
+  const user = await requireUser({ nextPath: "/dashboard" });
+  const currentUsername = user.username ?? "";
+  const parsed = usernameSchema.safeParse(String(formData.get("username") ?? ""));
+
+  if (!parsed.success) {
+    redirect(`/users/${currentUsername}?error=username-invalid`);
+  }
+
+  const username = parsed.data;
+  if (username === currentUsername) {
+    redirect(`/users/${username}`);
+  }
+
+  try {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { username }
+    });
+    await updateSession({ user: { username } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      redirect(`/users/${currentUsername}?error=username-taken`);
+    }
+    throw error;
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/users/${currentUsername}`);
+  revalidatePath(`/users/${username}`);
+  redirect(`/users/${username}`);
+}
+
 async function createInviteCode() {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const inviteCode = randomBytes(4).toString("hex");

@@ -1,23 +1,28 @@
 import { TournamentPickType } from "@prisma/client";
 import { Crown, Eye, EyeOff } from "lucide-react";
 import { notFound } from "next/navigation";
+import { updateUsernameAction } from "@/lib/actions";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { isMatchLocked } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { LinkButton } from "@/components/ui/button";
+import { Button, LinkButton } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { EmptyState, PageHeader, Stat } from "@/components/ui/section";
 import { TeamFlag } from "@/components/ui/team-flag";
 
 export const dynamic = "force-dynamic";
 
 export default async function UserProfilePage({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ username: string }>;
+  searchParams?: Promise<{ error?: string }>;
 }) {
   const { username } = await params;
+  const query = await searchParams;
   const viewer = await requireUser({ nextPath: `/users/${username}` });
 
   const [profile, firstMatch] = await Promise.all([
@@ -130,6 +135,38 @@ export default async function UserProfilePage({
         </Card>
 
         <aside className="space-y-6">
+          {isSelf ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Account</CardTitle>
+              </CardHeader>
+              <CardBody>
+                {query?.error === "username-taken" ? (
+                  <p className="mb-3 text-sm text-[--color-danger]">
+                    That username is taken.
+                  </p>
+                ) : null}
+                {query?.error === "username-invalid" ? (
+                  <p className="mb-3 text-sm text-[--color-danger]">
+                    Use 3-24 lowercase letters, numbers, or underscores.
+                  </p>
+                ) : null}
+                <form action={updateUsernameAction} className="space-y-3">
+                  <Input
+                    aria-label="Username"
+                    defaultValue={profile.username}
+                    name="username"
+                    pattern="[a-zA-Z0-9_]{3,24}"
+                    required
+                  />
+                  <Button type="submit" variant="secondary" className="w-full">
+                    Save username
+                  </Button>
+                </form>
+              </CardBody>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">

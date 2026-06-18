@@ -10,6 +10,7 @@ import {
   LogOut,
   ShieldAlert,
   Trophy,
+  UserRound,
   Users
 } from "lucide-react";
 import { signOutAction } from "@/lib/actions";
@@ -32,6 +33,10 @@ export function Topbar({
   isAdmin: boolean;
 }) {
   const pathname = usePathname() ?? "";
+  const nav = [
+    ...NAV,
+    { href: `/users/${username}`, label: "Profile", icon: UserRound }
+  ];
 
   return (
     <header className="sticky top-0 z-30 border-b border-[--color-border] bg-[--color-bg]/80 backdrop-blur-xl">
@@ -46,7 +51,7 @@ export function Topbar({
           </Link>
 
           <nav className="hidden items-center gap-1 md:flex">
-            {NAV.map((item) => {
+            {nav.map((item) => {
               const active =
                 pathname === item.href || pathname.startsWith(`${item.href}/`);
               const Icon = item.icon;
@@ -118,7 +123,7 @@ export function Topbar({
       </div>
 
       <nav className="flex items-center gap-1 overflow-x-auto border-t border-[--color-border] px-3 py-2 md:hidden">
-        {NAV.map((item) => {
+        {nav.map((item) => {
           const active =
             pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
