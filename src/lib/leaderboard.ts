@@ -71,6 +71,10 @@ type LeagueForProgress = {
 };
 
 type ProgressEvent = {
+  details: Array<{
+    label: string;
+    points: Record<string, number>;
+  }>;
   id: string;
   label: string;
   scores: Record<string, number>;
@@ -83,6 +87,8 @@ type ProgressMatch = {
   groupName: string | null;
   homeTeamId: string | null;
   awayTeamId: string | null;
+  homeTeam: { name: string } | null;
+  awayTeam: { name: string } | null;
   homeScore90: number | null;
   awayScore90: number | null;
 };
@@ -250,6 +256,8 @@ export async function getLeagueScoreProgress(league: LeagueForProgress) {
         groupName: true,
         homeTeamId: true,
         awayTeamId: true,
+        homeTeam: { select: { name: true } },
+        awayTeam: { select: { name: true } },
         homeScore90: true,
         awayScore90: true,
         kickoffAt: true
@@ -275,6 +283,7 @@ export async function getLeagueScoreProgress(league: LeagueForProgress) {
     {
       id: "start",
       label: "Start",
+      details: [],
       scores: scoresFromTotals(userIds, totals)
     }
   ];
@@ -288,11 +297,15 @@ export async function getLeagueScoreProgress(league: LeagueForProgress) {
     );
 
     for (const match of matches) {
+      const points = new Map(userIds.map((userId) => [userId, 0]));
       for (const userId of userIds) {
         const prediction = predictionsByUserMatch.get(userMatchKey(userId, match.id));
-        if (prediction) totals.set(userId, (totals.get(userId) ?? 0) + prediction.points);
+        if (prediction) {
+          totals.set(userId, (totals.get(userId) ?? 0) + prediction.points);
+          points.set(userId, prediction.points);
+        }
       }
-      events.push(matchProgressEvent(match, userIds, totals));
+      events.push(matchProgressEvent(match, userIds, totals, points));
     }
   } else {
     await addClassicProgressEvents(league, matches, predictions, totals, events);
@@ -303,6 +316,12 @@ export async function getLeagueScoreProgress(league: LeagueForProgress) {
     events.push({
       id: "tournament-picks",
       label: "Picks",
+      details: [
+        {
+          label: "Tournament picks",
+          points: scoresFromTotals(userIds, pickTotals)
+        }
+      ],
       scores: scoresFromTotals(userIds, totals)
     });
   }
@@ -386,6 +405,8 @@ async function addClassicProgressEvents(
   let placementBonusAdded = false;
 
   for (const match of matches) {
+    const points = new Map(userIds.map((userId) => [userId, 0]));
+    const details = [];
     if (
       match.stage === MatchStage.GROUP &&
       match.homeScore90 !== null &&
@@ -418,6 +439,7 @@ async function addClassicProgressEvents(
       if (!frozenPrediction) continue;
 
       totals.set(userId, (totals.get(userId) ?? 0) + frozenPrediction.points);
+      points.set(userId, frozenPrediction.points);
       if (match.stage === MatchStage.GROUP) {
         const predictedScores = predictedGroupScoresByUser.get(userId) ?? [];
         predictedScores.push({
@@ -428,6 +450,10 @@ async function addClassicProgressEvents(
         predictedGroupScoresByUser.set(userId, predictedScores);
       }
     }
+    details.push({
+      label: matchLabel(match),
+      points: scoresFromTotals(userIds, points)
+    });
 
     if (match.stage === MatchStage.GROUP && !placementBonusAdded) {
       const groupBonusByUser = userIds.map((userId) => [
@@ -443,11 +469,15 @@ async function addClassicProgressEvents(
         for (const [userId, bonus] of groupBonusByUser) {
           totals.set(userId, (totals.get(userId) ?? 0) + bonus);
         }
+        details.push({
+          label: "Group placement bonus",
+          points: Object.fromEntries(groupBonusByUser)
+        });
         placementBonusAdded = true;
       }
     }
 
-    events.push(matchProgressEvent(match, userIds, totals));
+    events.push(matchProgressEvent(match, userIds, totals, points, details));
   }
 }
 
@@ -481,13 +511,33 @@ function scoresFromTotals(userIds: string[], totals: Map<string, number>) {
 }
 
 function matchProgressEvent(
-  match: { id: string; matchNumber: number | null },
+  match: {
+    id: string;
+    matchNumber: number | null;
+    homeTeam?: { name: string } | null;
+    awayTeam?: { name: string } | null;
+  },
   userIds: string[],
-  totals: Map<string, number>
+  totals: Map<string, number>,
+  points: Map<string, number>,
+  details = [{ label: matchLabel(match), points: scoresFromTotals(userIds, points) }]
 ) {
   return {
     id: match.id,
     label: match.matchNumber ? `M${match.matchNumber}` : "Match",
+    details,
     scores: scoresFromTotals(userIds, totals)
   };
+}
+
+function matchLabel(match: {
+  matchNumber: number | null;
+  homeTeam?: { name: string } | null;
+  awayTeam?: { name: string } | null;
+}) {
+  const teams =
+    match.homeTeam && match.awayTeam
+      ? `${match.homeTeam.name} vs ${match.awayTeam.name}`
+      : "Match";
+  return match.matchNumber ? `M${match.matchNumber}: ${teams}` : teams;
 }

@@ -6,6 +6,10 @@ type Player = {
 };
 
 type ProgressEvent = {
+  details: Array<{
+    label: string;
+    points: Record<string, number>;
+  }>;
   id: string;
   label: string;
   scores: Record<string, number>;
@@ -44,8 +48,6 @@ export function ScoreProgressChart({ events, players }: ScoreProgressChartProps)
     1,
     ...events.flatMap((event) => players.map((player) => event.scores[player.id] ?? 0))
   );
-  const showAllMarkers = players.length * events.length <= 360;
-  const markerEvents = showAllMarkers ? events : [events[events.length - 1]];
   const yStep = Math.max(1, Math.ceil(maxScore / 4));
   const yMax = Math.max(yStep * 4, maxScore);
   const yTicks = Array.from({ length: 5 }, (_, index) => index * yStep);
@@ -123,23 +125,17 @@ export function ScoreProgressChart({ events, players }: ScoreProgressChartProps)
           })}
           {players.map((player, playerIndex) => {
             const color = COLORS[playerIndex % COLORS.length];
-            return markerEvents.map((event) => {
-              const eventIndex = events.findIndex((item) => item.id === event.id);
-              return (
-                <circle
-                  key={`${player.id}-${event.id}`}
-                  cx={xFor(eventIndex)}
-                  cy={yFor(event.scores[player.id] ?? 0)}
-                  fill={color}
-                  r="3"
-                >
-                  <title>
-                    @{player.username}: {event.scores[player.id] ?? 0} points after{" "}
-                    {event.label}
-                  </title>
-                </circle>
-              );
-            });
+            return events.map((event, eventIndex) => (
+              <circle
+                key={`${player.id}-${event.id}`}
+                cx={xFor(eventIndex)}
+                cy={yFor(event.scores[player.id] ?? 0)}
+                fill={color}
+                r="3"
+              >
+                <title>{tooltipText(player, event)}</title>
+              </circle>
+            ));
           })}
           {events.map((event, index) => {
             if (events.length > 10 && index % Math.ceil(events.length / 8) !== 0) {
@@ -173,4 +169,16 @@ export function ScoreProgressChart({ events, players }: ScoreProgressChartProps)
       </div>
     </div>
   );
+}
+
+function tooltipText(player: Player, event: ProgressEvent) {
+  const total = event.scores[player.id] ?? 0;
+  const lines = [`@${player.username}: ${total} total after ${event.label}`];
+
+  for (const detail of event.details) {
+    const points = detail.points[player.id] ?? 0;
+    lines.push(`${detail.label}: ${points > 0 ? `+${points}` : points} pts`);
+  }
+
+  return lines.join("\n");
 }
