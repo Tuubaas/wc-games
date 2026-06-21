@@ -10,7 +10,11 @@ import {
 } from "@/lib/actions";
 import { isSiteAdmin } from "@/lib/config";
 import { prisma } from "@/lib/db";
-import { getLeaguePointTotals, rankRows } from "@/lib/leaderboard";
+import {
+  getLeaguePointTotals,
+  getLeagueScoreProgress,
+  rankRows
+} from "@/lib/leaderboard";
 import { requireUser } from "@/lib/session";
 import { isMatchLocked } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +23,7 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/input";
 import { CopyInvite } from "@/components/copy-invite";
 import { PageHeader } from "@/components/ui/section";
+import { ScoreProgressChart } from "./score-progress-chart";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +61,10 @@ export default async function LeaguePage({
   const isAdmin = currentMember.role === LeagueRole.ADMIN;
   const isOwner = league.createdById === user.id;
   const canChangeLeagueType = isAdmin || isOwner || isSiteAdmin(user.email);
-  const pointTotals = await getLeaguePointTotals(league);
+  const [pointTotals, scoreProgress] = await Promise.all([
+    getLeaguePointTotals(league),
+    getLeagueScoreProgress(league)
+  ]);
   const rows = rankRows(
     league.members.map((member) => ({
       id: member.user.id,
@@ -256,6 +264,21 @@ export default async function LeaguePage({
           </Card>
         </aside>
       </div>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Score progress</CardTitle>
+          <Badge tone="muted">
+            {Math.max(0, scoreProgress.events.length - 1)} checkpoints
+          </Badge>
+        </CardHeader>
+        <CardBody>
+          <ScoreProgressChart
+            events={scoreProgress.events}
+            players={scoreProgress.players}
+          />
+        </CardBody>
+      </Card>
     </main>
   );
 }
