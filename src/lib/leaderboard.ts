@@ -132,7 +132,6 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
       },
       select: {
         createdAt: true,
-        updatedAt: true,
         userId: true,
         matchId: true,
         homeGoals: true,
@@ -204,8 +203,7 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
       const eligibleFallbackPrediction =
         prediction &&
         member.createdAt.getTime() <= lockMs &&
-        prediction.createdAt.getTime() <= lockMs &&
-        prediction.updatedAt.getTime() <= lockMs;
+        prediction.createdAt.getTime() <= lockMs;
       const frozenPrediction =
         classicPrediction ??
         (eligibleFallbackPrediction ? prediction : null);
@@ -268,7 +266,6 @@ export async function getLeagueScoreProgress(league: LeagueForProgress) {
       where: { userId: { in: userIds } },
       select: {
         createdAt: true,
-        updatedAt: true,
         userId: true,
         matchId: true,
         homeGoals: true,
@@ -334,7 +331,6 @@ async function addClassicProgressEvents(
   matches: ProgressMatch[],
   predictions: Array<{
     createdAt: Date;
-    updatedAt: Date;
     userId: string;
     matchId: string;
     homeGoals: number;
@@ -428,8 +424,7 @@ async function addClassicProgressEvents(
         prediction &&
         member &&
         member.createdAt.getTime() <= lockMs &&
-        prediction.createdAt.getTime() <= lockMs &&
-        prediction.updatedAt.getTime() <= lockMs;
+        prediction.createdAt.getTime() <= lockMs;
       const frozenPrediction =
         match.stage === MatchStage.GROUP
           ? classicPrediction ??

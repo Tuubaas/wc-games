@@ -1,3 +1,6 @@
+"use client";
+
+import { useRef, useState, type PointerEvent } from "react";
 import { EmptyState } from "@/components/ui/section";
 
 type Player = {
@@ -20,6 +23,13 @@ type ScoreProgressChartProps = {
   players: Player[];
 };
 
+type TooltipState = {
+  event: ProgressEvent;
+  player: Player;
+  x: number;
+  y: number;
+};
+
 const COLORS = [
   "#c6f24e",
   "#60a5fa",
@@ -38,6 +48,9 @@ const HEIGHT = 300;
 const PADDING = { bottom: 34, left: 42, right: 18, top: 18 };
 
 export function ScoreProgressChart({ events, players }: ScoreProgressChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+
   if (players.length === 0 || events.length <= 1) {
     return <EmptyState>No finished matches to chart yet.</EmptyState>;
   }
@@ -61,8 +74,23 @@ export function ScoreProgressChart({ events, players }: ScoreProgressChartProps)
     return PADDING.top + (1 - score / yMax) * chartHeight;
   }
 
+  function showTooltip(
+    pointerEvent: PointerEvent<SVGCircleElement>,
+    player: Player,
+    event: ProgressEvent
+  ) {
+    const bounds = containerRef.current?.getBoundingClientRect();
+    if (!bounds) return;
+    setTooltip({
+      event,
+      player,
+      x: pointerEvent.clientX - bounds.left + 12,
+      y: pointerEvent.clientY - bounds.top + 12
+    });
+  }
+
   return (
-    <div className="space-y-4">
+    <div ref={containerRef} className="relative space-y-4">
       <div className="overflow-x-auto">
         <svg
           aria-label="League score progress"
@@ -132,6 +160,13 @@ export function ScoreProgressChart({ events, players }: ScoreProgressChartProps)
                 cy={yFor(event.scores[player.id] ?? 0)}
                 fill={color}
                 r="3"
+                onPointerEnter={(pointerEvent) =>
+                  showTooltip(pointerEvent, player, event)
+                }
+                onPointerMove={(pointerEvent) =>
+                  showTooltip(pointerEvent, player, event)
+                }
+                onPointerLeave={() => setTooltip(null)}
               >
                 <title>{tooltipText(player, event)}</title>
               </circle>
@@ -167,6 +202,38 @@ export function ScoreProgressChart({ events, players }: ScoreProgressChartProps)
           </div>
         ))}
       </div>
+
+      {tooltip ? (
+        <div
+          className="pointer-events-none absolute z-20 max-w-[280px] rounded-md border border-[--color-border] bg-[--color-surface-3] px-3 py-2 text-xs shadow-xl"
+          style={{
+            left: tooltip.x,
+            top: tooltip.y
+          }}
+        >
+          <p className="font-medium text-[--color-text]">
+            @{tooltip.player.username} · {tooltip.event.scores[tooltip.player.id] ?? 0}{" "}
+            total
+          </p>
+          <div className="mt-1 space-y-1 text-[--color-muted]">
+            {tooltip.event.details.length > 0 ? (
+              tooltip.event.details.map((detail) => {
+                const points = detail.points[tooltip.player.id] ?? 0;
+                return (
+                  <p key={detail.label} className="flex justify-between gap-3">
+                    <span>{detail.label}</span>
+                    <span className="font-mono text-[--color-text]">
+                      {points > 0 ? `+${points}` : points}
+                    </span>
+                  </p>
+                );
+              })
+            ) : (
+              <p>{tooltip.event.label}</p>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -354,7 +354,7 @@ describe.runIf(runDbTests)("league type scoring", () => {
         leagueId: league.id,
         userId: user.id,
         role: LeagueRole.ADMIN,
-        createdAt: afterLock
+        createdAt: beforeLock
       }
     });
     await prisma.prediction.create({
@@ -497,7 +497,7 @@ describe.runIf(runDbTests)("league type scoring", () => {
         }
       })
     ]);
-    const changedSnapshot = await prisma.classicPrediction.findUnique({
+    const changedSnapshot = await prisma.classicPrediction.findUniqueOrThrow({
       where: {
         leagueId_userId_matchId: {
           leagueId: league.id,
@@ -513,7 +513,8 @@ describe.runIf(runDbTests)("league type scoring", () => {
     expect(snapshots).toBe(1);
     expect(frozenPrediction.homeGoals).toBe(1);
     expect(frozenPrediction.awayGoals).toBe(0);
-    expect(changedSnapshot).toBeNull();
+    expect(changedSnapshot.homeGoals).toBe(5);
+    expect(changedSnapshot.awayGoals).toBe(5);
   });
 });
 

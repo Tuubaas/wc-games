@@ -103,7 +103,6 @@ export async function freezeClassicGroupPredictionsForUser(userId: string) {
       where: {
         userId,
         createdAt: { lte: lockTime },
-        updatedAt: { lte: lockTime },
         match: { stage: MatchStage.GROUP }
       },
       include: { match: true }
@@ -152,7 +151,6 @@ export async function freezeAllClassicGroupPredictions(now = new Date()) {
     prisma.prediction.findMany({
       where: {
         createdAt: { lte: lockTime },
-        updatedAt: { lte: lockTime },
         match: { stage: MatchStage.GROUP }
       },
       include: { match: true }
