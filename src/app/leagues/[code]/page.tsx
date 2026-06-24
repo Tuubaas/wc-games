@@ -15,6 +15,7 @@ import {
   getLeagueScoreProgress,
   rankRows
 } from "@/lib/leaderboard";
+import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireUser } from "@/lib/session";
 import { isMatchLocked } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +35,7 @@ export default async function LeaguePage({
 }) {
   const { code } = await params;
   const user = await requireUser({ nextPath: `/leagues/${code}` });
-  const [league, firstGroupMatch] = await Promise.all([
+  const [league, firstGroupMatch, timeZone] = await Promise.all([
     prisma.league.findUnique({
       where: { inviteCode: code },
       include: {
@@ -50,7 +51,8 @@ export default async function LeaguePage({
       where: { stage: "GROUP" },
       orderBy: { kickoffAt: "asc" },
       select: { kickoffAt: true }
-    })
+    }),
+    getUserTimeZone()
   ]);
 
   if (!league) notFound();
@@ -63,7 +65,7 @@ export default async function LeaguePage({
   const canChangeLeagueType = isAdmin || isOwner || isSiteAdmin(user.email);
   const [pointTotals, scoreProgress] = await Promise.all([
     getLeaguePointTotals(league),
-    getLeagueScoreProgress(league)
+    getLeagueScoreProgress(league, timeZone)
   ]);
   const rows = rankRows(
     league.members.map((member) => ({

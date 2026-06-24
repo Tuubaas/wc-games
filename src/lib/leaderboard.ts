@@ -1,7 +1,7 @@
 import { LeagueType, MatchStage, MatchStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { scoreGroupPlacementBonus } from "@/lib/group-standings";
-import { matchLockTime } from "@/lib/time";
+import { formatMatchDayLabel, matchLockTime } from "@/lib/time";
 
 type PointRow = {
   id: string;
@@ -70,11 +70,13 @@ type LeagueForProgress = {
   }>;
 };
 
+type ProgressDetail = {
+  label: string;
+  points: Record<string, number>;
+};
+
 type ProgressEvent = {
-  details: Array<{
-    label: string;
-    points: Record<string, number>;
-  }>;
+  details: ProgressDetail[];
   id: string;
   label: string;
   scores: Record<string, number>;
@@ -91,6 +93,7 @@ type ProgressMatch = {
   awayTeam: { name: string } | null;
   homeScore90: number | null;
   awayScore90: number | null;
+  kickoffAt: Date;
 };
 
 export async function getLeaguePointTotals(league: LeagueForTotals) {
@@ -231,7 +234,7 @@ export async function getLeaguePointTotals(league: LeagueForTotals) {
   return totals;
 }
 
-export async function getLeagueScoreProgress(league: LeagueForProgress) {
+export async function getLeagueScoreProgress(league: LeagueForProgress, timeZone?: string) {
   const userIds = league.members.map((member) => member.userId);
   if (userIds.length === 0) return { events: [], players: [] };
 
@@ -293,19 +296,27 @@ export async function getLeagueScoreProgress(league: LeagueForProgress) {
       ])
     );
 
-    for (const match of matches) {
-      const points = new Map(userIds.map((userId) => [userId, 0]));
-      for (const userId of userIds) {
-        const prediction = predictionsByUserMatch.get(userMatchKey(userId, match.id));
-        if (prediction) {
-          totals.set(userId, (totals.get(userId) ?? 0) + prediction.points);
-          points.set(userId, prediction.points);
+    for (const matchday of groupMatchesByMatchday(matches, timeZone)) {
+      const details: ProgressDetail[] = [];
+
+      for (const match of matchday.matches) {
+        const points = new Map(userIds.map((userId) => [userId, 0]));
+        for (const userId of userIds) {
+          const prediction = predictionsByUserMatch.get(userMatchKey(userId, match.id));
+          if (prediction) {
+            totals.set(userId, (totals.get(userId) ?? 0) + prediction.points);
+            points.set(userId, prediction.points);
+          }
         }
+        details.push({
+          label: matchLabel(match),
+          points: scoresFromTotals(userIds, points)
+        });
       }
-      events.push(matchProgressEvent(match, userIds, totals, points));
+      events.push(progressEvent(matchday.id, matchday.label, userIds, totals, details));
     }
   } else {
-    await addClassicProgressEvents(league, matches, predictions, totals, events);
+    await addClassicProgressEvents(league, matches, predictions, totals, events, timeZone);
   }
 
   mergeTotals(totals, pickTotals);
@@ -338,7 +349,8 @@ async function addClassicProgressEvents(
     points: number;
   }>,
   totals: Map<string, number>,
-  events: ProgressEvent[]
+  events: ProgressEvent[],
+  timeZone?: string
 ) {
   const userIds = league.members.map((member) => member.userId);
   const firstGroupMatch = await prisma.match.findFirst({
@@ -400,79 +412,82 @@ async function addClassicProgressEvents(
   }> = [];
   let placementBonusAdded = false;
 
-  for (const match of matches) {
-    const points = new Map(userIds.map((userId) => [userId, 0]));
-    const details = [];
-    if (
-      match.stage === MatchStage.GROUP &&
-      match.homeScore90 !== null &&
-      match.awayScore90 !== null
-    ) {
-      finishedGroupScores.push({
-        matchId: match.id,
-        homeGoals: match.homeScore90,
-        awayGoals: match.awayScore90
-      });
-    }
+  for (const matchday of groupMatchesByMatchday(matches, timeZone)) {
+    const details: ProgressDetail[] = [];
 
-    for (const userId of userIds) {
-      const key = userMatchKey(userId, match.id);
-      const prediction = predictionsByUserMatch.get(key);
-      const classicPrediction = classicPredictionsByUserMatch.get(key);
-      const member = membersByUserId.get(userId);
-      const eligibleFallbackPrediction =
-        prediction &&
-        member &&
-        member.createdAt.getTime() <= lockMs &&
-        prediction.createdAt.getTime() <= lockMs;
-      const frozenPrediction =
-        match.stage === MatchStage.GROUP
-          ? classicPrediction ??
-            (eligibleFallbackPrediction ? prediction : null)
-          : prediction;
-
-      if (!frozenPrediction) continue;
-
-      totals.set(userId, (totals.get(userId) ?? 0) + frozenPrediction.points);
-      points.set(userId, frozenPrediction.points);
-      if (match.stage === MatchStage.GROUP) {
-        const predictedScores = predictedGroupScoresByUser.get(userId) ?? [];
-        predictedScores.push({
+    for (const match of matchday.matches) {
+      const points = new Map(userIds.map((userId) => [userId, 0]));
+      if (
+        match.stage === MatchStage.GROUP &&
+        match.homeScore90 !== null &&
+        match.awayScore90 !== null
+      ) {
+        finishedGroupScores.push({
           matchId: match.id,
-          homeGoals: frozenPrediction.homeGoals,
-          awayGoals: frozenPrediction.awayGoals
+          homeGoals: match.homeScore90,
+          awayGoals: match.awayScore90
         });
-        predictedGroupScoresByUser.set(userId, predictedScores);
       }
-    }
-    details.push({
-      label: matchLabel(match),
-      points: scoresFromTotals(userIds, points)
-    });
 
-    if (match.stage === MatchStage.GROUP && !placementBonusAdded) {
-      const groupBonusByUser = userIds.map((userId) => [
-        userId,
-        scoreGroupPlacementBonus(
-          allGroupMatches,
-          finishedGroupScores,
-          predictedGroupScoresByUser.get(userId) ?? []
-        )
-      ] as const);
+      for (const userId of userIds) {
+        const key = userMatchKey(userId, match.id);
+        const prediction = predictionsByUserMatch.get(key);
+        const classicPrediction = classicPredictionsByUserMatch.get(key);
+        const member = membersByUserId.get(userId);
+        const eligibleFallbackPrediction =
+          prediction &&
+          member &&
+          member.createdAt.getTime() <= lockMs &&
+          prediction.createdAt.getTime() <= lockMs;
+        const frozenPrediction =
+          match.stage === MatchStage.GROUP
+            ? classicPrediction ??
+              (eligibleFallbackPrediction ? prediction : null)
+            : prediction;
 
-      if (groupBonusByUser.some(([, bonus]) => bonus > 0)) {
-        for (const [userId, bonus] of groupBonusByUser) {
-          totals.set(userId, (totals.get(userId) ?? 0) + bonus);
+        if (!frozenPrediction) continue;
+
+        totals.set(userId, (totals.get(userId) ?? 0) + frozenPrediction.points);
+        points.set(userId, frozenPrediction.points);
+        if (match.stage === MatchStage.GROUP) {
+          const predictedScores = predictedGroupScoresByUser.get(userId) ?? [];
+          predictedScores.push({
+            matchId: match.id,
+            homeGoals: frozenPrediction.homeGoals,
+            awayGoals: frozenPrediction.awayGoals
+          });
+          predictedGroupScoresByUser.set(userId, predictedScores);
         }
-        details.push({
-          label: "Group placement bonus",
-          points: Object.fromEntries(groupBonusByUser)
-        });
-        placementBonusAdded = true;
+      }
+      details.push({
+        label: matchLabel(match),
+        points: scoresFromTotals(userIds, points)
+      });
+
+      if (match.stage === MatchStage.GROUP && !placementBonusAdded) {
+        const groupBonusByUser = userIds.map((userId) => [
+          userId,
+          scoreGroupPlacementBonus(
+            allGroupMatches,
+            finishedGroupScores,
+            predictedGroupScoresByUser.get(userId) ?? []
+          )
+        ] as const);
+
+        if (groupBonusByUser.some(([, bonus]) => bonus > 0)) {
+          for (const [userId, bonus] of groupBonusByUser) {
+            totals.set(userId, (totals.get(userId) ?? 0) + bonus);
+          }
+          details.push({
+            label: "Group placement bonus",
+            points: Object.fromEntries(groupBonusByUser)
+          });
+          placementBonusAdded = true;
+        }
       }
     }
 
-    events.push(matchProgressEvent(match, userIds, totals, points, details));
+    events.push(progressEvent(matchday.id, matchday.label, userIds, totals, details));
   }
 }
 
@@ -505,24 +520,32 @@ function scoresFromTotals(userIds: string[], totals: Map<string, number>) {
   return Object.fromEntries(userIds.map((userId) => [userId, totals.get(userId) ?? 0]));
 }
 
-function matchProgressEvent(
-  match: {
-    id: string;
-    matchNumber: number | null;
-    homeTeam?: { name: string } | null;
-    awayTeam?: { name: string } | null;
-  },
+function progressEvent(
+  id: string,
+  label: string,
   userIds: string[],
   totals: Map<string, number>,
-  points: Map<string, number>,
-  details = [{ label: matchLabel(match), points: scoresFromTotals(userIds, points) }]
+  details: ProgressDetail[]
 ) {
   return {
-    id: match.id,
-    label: match.matchNumber ? `M${match.matchNumber}` : "Match",
+    id,
+    label,
     details,
     scores: scoresFromTotals(userIds, totals)
   };
+}
+
+function groupMatchesByMatchday(matches: ProgressMatch[], timeZone?: string) {
+  const groups = new Map<string, { id: string; label: string; matches: ProgressMatch[] }>();
+
+  for (const match of matches) {
+    const label = formatMatchDayLabel(match.kickoffAt, timeZone);
+    const group = groups.get(label) ?? { id: label, label, matches: [] };
+    group.matches.push(match);
+    groups.set(label, group);
+  }
+
+  return Array.from(groups.values());
 }
 
 function matchLabel(match: {
