@@ -54,9 +54,13 @@ type FootballDataTeam = z.infer<typeof footballDataTeamSchema>;
 type FootballDataMatch = z.infer<typeof footballDataMatchSchema>;
 type FootballDataFullTimeScore = z.infer<typeof footballDataFullTimeScoreSchema>;
 
+class LoggedSyncError extends Error {}
+
 const FOOTBALL_DATA_TEAM_CODE_ALIASES: Record<string, string> = {
   URY: "URU"
 };
+const FOOTBALL_DATA_RESULT_SOURCE = "football-data";
+const FOOTBALL_DATA_PENDING_RECALC_SOURCE = "football-data-pending-recalc";
 
 function mapStatus(status: string): MatchStatus {
   if (status === "FINISHED") return MatchStatus.FINISHED;
@@ -94,6 +98,11 @@ function fullTimeScore(fullTime: FootballDataFullTimeScore) {
     away: fullTime?.away ?? fullTime?.awayTeam ?? null,
     home: fullTime?.home ?? fullTime?.homeTeam ?? null
   };
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 function normalizeTeamCode(code?: string | null) {
@@ -253,7 +262,7 @@ async function upsertMatch(item: FootballDataMatch) {
     status,
     homeScore90: hasFullTimeScore ? fullTime.home : undefined,
     awayScore90: hasFullTimeScore ? fullTime.away : undefined,
-    resultSource: hasFullTimeScore ? "football-data" : undefined
+    resultSource: hasFullTimeScore ? FOOTBALL_DATA_RESULT_SOURCE : undefined
   };
 
   const existing = await prisma.match.findUnique({
@@ -278,7 +287,7 @@ async function upsertMatch(item: FootballDataMatch) {
     }
 
     if (existing.resultSource === "admin") {
-      return { match: existing, hasFullTimeScore: false };
+      return { match: existing, shouldRecalculate: false };
     }
 
     return {
@@ -286,7 +295,7 @@ async function upsertMatch(item: FootballDataMatch) {
         where: { id: existing.id },
         data: resultData
       }),
-      hasFullTimeScore
+      shouldRecalculate: hasFullTimeScore && didResultChange(existing, resultData)
     };
   }
 
@@ -310,7 +319,7 @@ async function upsertMatch(item: FootballDataMatch) {
           where: { id: seededMatch.id },
           data: matchData
         }),
-        hasFullTimeScore: false
+        shouldRecalculate: false
       };
     }
 
@@ -319,14 +328,36 @@ async function upsertMatch(item: FootballDataMatch) {
         where: { id: seededMatch.id },
         data: resultData
       }),
-      hasFullTimeScore
+      shouldRecalculate: hasFullTimeScore && didResultChange(seededMatch, resultData)
     };
   }
 
   return {
     match: await prisma.match.create({ data: resultData }),
-    hasFullTimeScore
+    shouldRecalculate: hasFullTimeScore
   };
+}
+
+function didResultChange(
+  existing: {
+    awayScore90: number | null;
+    resultSource: string | null;
+    homeScore90: number | null;
+    status: MatchStatus;
+  },
+  next: {
+    awayScore90?: number | null;
+    resultSource?: string;
+    homeScore90?: number | null;
+    status: MatchStatus;
+  }
+) {
+  return (
+    existing.status !== next.status ||
+    existing.homeScore90 !== next.homeScore90 ||
+    existing.awayScore90 !== next.awayScore90 ||
+    existing.resultSource !== next.resultSource
+  );
 }
 
 async function findSeededDuplicateMatch({
@@ -480,7 +511,7 @@ async function mergeExternalMatchIntoSeededMatch({
 
   return {
     match,
-    hasFullTimeScore: updateResult && resultData.resultSource === "football-data"
+    shouldRecalculate: updateResult && resultData.resultSource === FOOTBALL_DATA_RESULT_SOURCE
   };
 }
 
@@ -507,72 +538,99 @@ async function syncFootballDataMatches({
 }: {
   knockoutOnly?: boolean;
 } = {}) {
-  const token = process.env.FOOTBALL_DATA_TOKEN;
-  if (!token) {
-    await createSyncLog("skipped", "FOOTBALL_DATA_TOKEN is not configured.");
-    return { fixtures: 0, updated: 0, skipped: true };
-  }
-
-  const response = await fetch(
-    "https://api.football-data.org/v4/competitions/WC/matches?season=2026",
-    {
-      headers: { "X-Auth-Token": token },
-      cache: "no-store"
+  try {
+    const token = process.env.FOOTBALL_DATA_TOKEN;
+    if (!token) {
+      await createSyncLog("skipped", "FOOTBALL_DATA_TOKEN is not configured.");
+      return { failed: 0, fixtures: 0, updated: 0, skipped: true };
     }
-  );
 
-  if (!response.ok) {
-    const message = await response.text();
-    await createSyncLog("failed", message.slice(0, 500));
-    throw new Error(`football-data sync failed: ${response.status}`);
-  }
-
-  const rawPayload = await response.json();
-  const parsedPayload = footballDataPayloadSchema.safeParse(rawPayload);
-  if (!parsedPayload.success) {
-    const issue = parsedPayload.error.issues[0];
-    const detail = issue
-      ? `${issue.path.join(".") || "root"}: ${issue.message}`
-      : "unknown schema mismatch";
-    await createSyncLog(
-      "failed",
-      `football-data response did not match the expected shape: ${detail}`.slice(
-        0,
-        500
-      )
+    const response = await fetch(
+      "https://api.football-data.org/v4/competitions/WC/matches?season=2026",
+      {
+        headers: { "X-Auth-Token": token },
+        cache: "no-store"
+      }
     );
-    throw new Error(`football-data response did not match the expected shape: ${detail}`);
-  }
 
-  const payload = parsedPayload.data;
-  if (payload.filters?.season && payload.filters.season !== "2026") {
-    await createSyncLog("failed", `football-data returned season ${payload.filters.season}.`);
-    throw new Error(`football-data returned season ${payload.filters.season}.`);
-  }
-
-  let fixtures = 0;
-  let updated = 0;
-
-  const matches = knockoutOnly
-    ? payload.matches.filter((item) => mapStage(item.stage) !== MatchStage.GROUP)
-    : payload.matches;
-
-  for (const item of matches) {
-    const { match, hasFullTimeScore } = await upsertMatch(item);
-    fixtures += 1;
-
-    if (hasFullTimeScore) {
-      await recalculateMatchPoints(match.id);
-      updated += 1;
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(
+        `football-data sync failed: ${response.status} ${message.slice(0, 300)}`
+      );
     }
+
+    const rawPayload = await response.json();
+    const parsedPayload = footballDataPayloadSchema.safeParse(rawPayload);
+    if (!parsedPayload.success) {
+      const issue = parsedPayload.error.issues[0];
+      const detail = issue
+        ? `${issue.path.join(".") || "root"}: ${issue.message}`
+        : "unknown schema mismatch";
+      throw new Error(`football-data response did not match the expected shape: ${detail}`);
+    }
+
+    const payload = parsedPayload.data;
+    if (payload.filters?.season && payload.filters.season !== "2026") {
+      throw new Error(`football-data returned season ${payload.filters.season}.`);
+    }
+
+    let failed = 0;
+    let fixtures = 0;
+    let updated = 0;
+    const failureDetails: string[] = [];
+
+    const matches = knockoutOnly
+      ? payload.matches.filter((item) => mapStage(item.stage) !== MatchStage.GROUP)
+      : payload.matches;
+
+    for (const item of matches) {
+      try {
+        const { match, shouldRecalculate } = await upsertMatch(item);
+        fixtures += 1;
+
+        if (shouldRecalculate) {
+          try {
+            await recalculateMatchPoints(match.id);
+          } catch (error) {
+            await markMatchForRecalculation(match.id);
+            throw error;
+          }
+          updated += 1;
+        }
+      } catch (error) {
+        failed += 1;
+        if (failureDetails.length < 3) {
+          failureDetails.push(`${item.id}: ${errorMessage(error)}`);
+        }
+      }
+    }
+
+    const scope = knockoutOnly ? "knockout fixtures" : "fixtures";
+    const message =
+      failed > 0
+        ? `Synced ${fixtures} ${scope}, updated ${updated} finished matches, failed ${failed}: ${failureDetails.join(" | ")}`
+        : `Synced ${fixtures} ${scope} and updated ${updated} finished matches.`;
+
+    await createSyncLog(failed > 0 ? "failed" : "ok", message.slice(0, 500));
+
+    if (failed > 0) {
+      throw new LoggedSyncError(message);
+    }
+
+    return { failed, fixtures, updated, skipped: false };
+  } catch (error) {
+    if (!(error instanceof LoggedSyncError)) {
+      const message = errorMessage(error).slice(0, 500);
+      await createSyncLog("failed", message);
+    }
+    throw error;
   }
+}
 
-  await createSyncLog(
-    "ok",
-    knockoutOnly
-      ? `Synced ${fixtures} knockout fixtures and updated ${updated} finished matches.`
-      : `Synced ${fixtures} fixtures and updated ${updated} finished matches.`
-  );
-
-  return { fixtures, updated, skipped: false };
+async function markMatchForRecalculation(matchId: string) {
+  await prisma.match.update({
+    where: { id: matchId },
+    data: { resultSource: FOOTBALL_DATA_PENDING_RECALC_SOURCE }
+  });
 }

@@ -12,7 +12,12 @@ vi.mock("@/lib/results-sync", () => ({
 describe("daily result sync cron", () => {
   beforeEach(() => {
     vi.stubEnv("CRON_SECRET", "test-cron-secret");
-    syncFootballDataResults.mockResolvedValue({ updated: 2, skipped: false });
+    syncFootballDataResults.mockResolvedValue({
+      failed: 0,
+      fixtures: 4,
+      updated: 2,
+      skipped: false
+    });
   });
 
   afterEach(() => {
@@ -43,8 +48,26 @@ describe("daily result sync cron", () => {
       })
     );
 
-    await expect(response.json()).resolves.toEqual({ updated: 2, skipped: false });
+    await expect(response.json()).resolves.toEqual({
+      failed: 0,
+      fixtures: 4,
+      updated: 2,
+      skipped: false
+    });
     expect(response.status).toBe(200);
     expect(syncFootballDataResults).toHaveBeenCalledOnce();
+  });
+
+  it("returns sync errors as JSON", async () => {
+    syncFootballDataResults.mockRejectedValue(new Error("football-data exploded"));
+    const { GET } = await import("@/app/api/cron/sync-results/route");
+    const response = await GET(
+      new Request("https://example.test/api/cron/sync-results", {
+        headers: { authorization: "Bearer test-cron-secret" }
+      })
+    );
+
+    await expect(response.json()).resolves.toEqual({ error: "Sync failed" });
+    expect(response.status).toBe(500);
   });
 });

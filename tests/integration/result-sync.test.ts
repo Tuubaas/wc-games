@@ -118,7 +118,8 @@ describe.runIf(runDbTests)("football-data result sync", () => {
       })
     );
 
-    await syncFootballDataResults();
+    const firstSync = await syncFootballDataResults();
+    expect(firstSync.updated).toBe(1);
 
     const updatedMatch = await prisma.match.findUniqueOrThrow({
       where: { id: match.id }
@@ -132,6 +133,9 @@ describe.runIf(runDbTests)("football-data result sync", () => {
       where: { userId_matchId: { userId: user.id, matchId: match.id } }
     });
     expect(prediction.points).toBe(8);
+
+    const unchangedSync = await syncFootballDataResults();
+    expect(unchangedSync.updated).toBe(0);
 
     await prisma.match.update({
       where: { id: match.id },
