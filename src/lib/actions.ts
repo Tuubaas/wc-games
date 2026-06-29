@@ -15,6 +15,10 @@ import { z } from "zod";
 import { signIn, signOut, updateSession } from "@/auth";
 import { isSiteAdmin, TOURNAMENT_ID } from "@/lib/config";
 import { prisma } from "@/lib/db";
+import {
+  isPredictionLockedForMatch,
+  setKnockoutPredictionsReopened
+} from "@/lib/knockout-predictions";
 import { safeInternalPath } from "@/lib/redirect";
 import {
   freezeAllClassicGroupPredictions,
@@ -29,7 +33,10 @@ import {
   areTournamentPicksLocked,
   setTournamentPicksReopened
 } from "@/lib/tournament-picks";
-import { syncFootballDataResults } from "@/lib/results-sync";
+import {
+  syncFootballDataKnockoutFixtures,
+  syncFootballDataResults
+} from "@/lib/results-sync";
 
 const usernameSchema = z
   .string()
@@ -236,7 +243,13 @@ export async function updateLeagueTypeAction(leagueId: string, formData: FormDat
 export async function savePredictionAction(matchId: string, formData: FormData) {
   const user = await requireUser({ nextPath: "/matches" });
   const match = await prisma.match.findUnique({ where: { id: matchId } });
-  if (!match || !match.homeTeamId || !match.awayTeamId || isMatchLocked(match.kickoffAt)) {
+  if (
+    !match ||
+    !match.homeTeamId ||
+    !match.awayTeamId ||
+    match.status !== MatchStatus.SCHEDULED ||
+    (await isPredictionLockedForMatch(match))
+  ) {
     redirect("/matches");
   }
 
@@ -488,6 +501,18 @@ export async function syncResultsAction() {
   redirect("/admin?sync=ok");
 }
 
+export async function syncKnockoutFixturesAction() {
+  await requireSiteAdmin("/admin");
+  try {
+    await syncFootballDataKnockoutFixtures();
+  } catch {
+    revalidateScoreViews();
+    redirect("/admin?knockoutSync=failed");
+  }
+  revalidateScoreViews();
+  redirect("/admin?knockoutSync=ok");
+}
+
 export async function freezeClassicSnapshotsAction() {
   await requireSiteAdmin("/admin");
   const result = await freezeAllClassicGroupPredictions();
@@ -505,6 +530,15 @@ export async function setTournamentPicksReopenedAction(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath("/picks");
+}
+
+export async function setKnockoutPredictionsReopenedAction(formData: FormData) {
+  await requireSiteAdmin("/admin");
+  const reopened = formData.get("reopened") === "true";
+  await setKnockoutPredictionsReopened(reopened);
+
+  revalidatePath("/admin");
+  revalidatePath("/matches");
 }
 
 export async function recalculateAllAction() {

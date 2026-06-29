@@ -15,13 +15,16 @@ import {
   freezeClassicSnapshotsAction,
   recalculateAllAction,
   removeTopScorerResultAction,
+  setKnockoutPredictionsReopenedAction,
   setTournamentWinnerAction,
   setTournamentPicksReopenedAction,
+  syncKnockoutFixturesAction,
   syncResultsAction,
   updateAllMatchResultsAction
 } from "@/lib/actions";
 import { TOURNAMENT_ID } from "@/lib/config";
 import { prisma } from "@/lib/db";
+import { areKnockoutPredictionsReopened } from "@/lib/knockout-predictions";
 import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireSiteAdmin } from "@/lib/session";
 import { formatDateTime, isMatchLocked, matchLockTime } from "@/lib/time";
@@ -50,11 +53,16 @@ export default async function AdminPage({
     candidates?: string;
     created?: string;
     freeze?: string;
+    knockoutSync?: string;
     sync?: string;
   }>;
 }) {
   const params = await searchParams;
   const syncStatus = params?.sync === "ok" || params?.sync === "failed" ? params.sync : null;
+  const knockoutSyncStatus =
+    params?.knockoutSync === "ok" || params?.knockoutSync === "failed"
+      ? params.knockoutSync
+      : null;
   const freezeStatus =
     params?.freeze === "ok" || params?.freeze === "skipped" ? params.freeze : null;
   await requireSiteAdmin("/admin");
@@ -67,6 +75,7 @@ export default async function AdminPage({
     logs,
     leagues,
     picksReopened,
+    knockoutPredictionsReopened,
     firstGroupMatch
   ] =
     await Promise.all([
@@ -94,6 +103,7 @@ export default async function AdminPage({
         orderBy: { createdAt: "desc" }
       }),
       areTournamentPicksReopened(),
+      areKnockoutPredictionsReopened(),
       prisma.match.findFirst({
         where: { stage: "GROUP" },
         orderBy: { kickoffAt: "asc" },
@@ -155,6 +165,21 @@ export default async function AdminPage({
             {syncStatus === "ok"
               ? "Results sync completed. Latest details are in the sync log."
               : "Results sync failed. Check the sync log below for the exact error."}
+          </p>
+        </div>
+      ) : null}
+
+      {knockoutSyncStatus === "ok" || knockoutSyncStatus === "failed" ? (
+        <div className="mt-6 rounded-md border border-[--color-border] bg-[--color-surface] px-4 py-3">
+          <Badge tone={knockoutSyncStatus === "ok" ? "accent" : "danger"}>
+            {knockoutSyncStatus === "ok"
+              ? "Knockout fixtures synced"
+              : "Knockout sync failed"}
+          </Badge>
+          <p className="mt-2 text-sm text-[--color-muted]">
+            {knockoutSyncStatus === "ok"
+              ? "Knockout fixture details were fetched. Latest details are in the sync log."
+              : "Knockout fixture sync failed. Check the sync log below for the exact error."}
           </p>
         </div>
       ) : null}
@@ -273,6 +298,54 @@ export default async function AdminPage({
               />
               <Button type="submit" variant={picksReopened ? "danger" : "secondary"}>
                 {picksReopened ? "Close picks" : "Open picks"}
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Knockout fixtures</CardTitle>
+            <Badge tone="muted">Football-data</Badge>
+          </CardHeader>
+          <CardBody>
+            <p className="mb-4 text-sm text-[--color-muted]">
+              Fetch knockout fixture teams and kickoffs from football-data.
+            </p>
+            <form action={syncKnockoutFixturesAction}>
+              <Button type="submit" variant="secondary">
+                <RefreshCcw size={13} />
+                Sync knockout games
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Knockout betting</CardTitle>
+            <Badge tone={knockoutPredictionsReopened ? "accent" : "muted"}>
+              {knockoutPredictionsReopened ? "Open" : "Normal locks"}
+            </Badge>
+          </CardHeader>
+          <CardBody>
+            <p className="mb-4 text-sm text-[--color-muted]">
+              Let users edit scheduled knockout predictions even if the normal lock
+              has passed.
+            </p>
+            <form action={setKnockoutPredictionsReopenedAction}>
+              <input
+                type="hidden"
+                name="reopened"
+                value={knockoutPredictionsReopened ? "false" : "true"}
+              />
+              <Button
+                type="submit"
+                variant={knockoutPredictionsReopened ? "danger" : "secondary"}
+              >
+                {knockoutPredictionsReopened
+                  ? "Close knockout betting"
+                  : "Open knockout betting"}
               </Button>
             </form>
           </CardBody>

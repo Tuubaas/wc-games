@@ -290,15 +290,17 @@ async function upsertMatch(item: FootballDataMatch) {
     };
   }
 
-  const minuteBefore = new Date(kickoffAt.getTime() - 60_000);
-  const minuteAfter = new Date(kickoffAt.getTime() + 60_000);
+  const matchWindowMs =
+    stage === MatchStage.GROUP ? 60_000 : 12 * 60 * 60 * 1000;
+  const windowStart = new Date(kickoffAt.getTime() - matchWindowMs);
+  const windowEnd = new Date(kickoffAt.getTime() + matchWindowMs);
   const seededMatch = await findSeededDuplicateMatch({
     awayTeamId: awayTeam?.id,
     homeTeamId: homeTeam?.id,
     kickoffAt,
     stage,
-    windowEnd: minuteAfter,
-    windowStart: minuteBefore
+    windowEnd,
+    windowStart
   });
 
   if (seededMatch) {
@@ -350,8 +352,10 @@ async function findSeededDuplicateMatch({
     where: {
       id: existingMatchId ? { not: existingMatchId } : undefined,
       externalId: null,
-      homeTeamId,
-      awayTeamId,
+      AND: [
+        { OR: [{ homeTeamId }, { homeTeamId: null }] },
+        { OR: [{ awayTeamId }, { awayTeamId: null }] }
+      ],
       stage,
       kickoffAt:
         windowStart && windowEnd
@@ -366,10 +370,26 @@ async function findSeededDuplicateMatch({
 
   if (candidates.length === 0) return null;
   return candidates.sort(
-    (a, b) =>
-      Math.abs(a.kickoffAt.getTime() - kickoffAt.getTime()) -
-      Math.abs(b.kickoffAt.getTime() - kickoffAt.getTime())
+    (a, b) => candidateScore(b, homeTeamId, awayTeamId, kickoffAt) -
+      candidateScore(a, homeTeamId, awayTeamId, kickoffAt)
   )[0];
+}
+
+function candidateScore(
+  match: {
+    awayTeamId: string | null;
+    homeTeamId: string | null;
+    kickoffAt: Date;
+  },
+  homeTeamId: string,
+  awayTeamId: string,
+  kickoffAt: Date
+) {
+  const sideScore =
+    (match.homeTeamId === homeTeamId ? 4 : match.homeTeamId === null ? 1 : 0) +
+    (match.awayTeamId === awayTeamId ? 4 : match.awayTeamId === null ? 1 : 0);
+  const hoursAway = Math.abs(match.kickoffAt.getTime() - kickoffAt.getTime()) / 3_600_000;
+  return sideScore * 100 - hoursAway;
 }
 
 async function mergeExternalMatchIntoSeededMatch({
@@ -475,10 +495,22 @@ async function createSyncLog(status: "ok" | "failed" | "skipped", message: strin
 }
 
 export async function syncFootballDataResults() {
+  return syncFootballDataMatches();
+}
+
+export async function syncFootballDataKnockoutFixtures() {
+  return syncFootballDataMatches({ knockoutOnly: true });
+}
+
+async function syncFootballDataMatches({
+  knockoutOnly = false
+}: {
+  knockoutOnly?: boolean;
+} = {}) {
   const token = process.env.FOOTBALL_DATA_TOKEN;
   if (!token) {
     await createSyncLog("skipped", "FOOTBALL_DATA_TOKEN is not configured.");
-    return { updated: 0, skipped: true };
+    return { fixtures: 0, updated: 0, skipped: true };
   }
 
   const response = await fetch(
@@ -518,10 +550,16 @@ export async function syncFootballDataResults() {
     throw new Error(`football-data returned season ${payload.filters.season}.`);
   }
 
+  let fixtures = 0;
   let updated = 0;
 
-  for (const item of payload.matches) {
+  const matches = knockoutOnly
+    ? payload.matches.filter((item) => mapStage(item.stage) !== MatchStage.GROUP)
+    : payload.matches;
+
+  for (const item of matches) {
     const { match, hasFullTimeScore } = await upsertMatch(item);
+    fixtures += 1;
 
     if (hasFullTimeScore) {
       await recalculateMatchPoints(match.id);
@@ -529,7 +567,12 @@ export async function syncFootballDataResults() {
     }
   }
 
-  await createSyncLog("ok", `Updated ${updated} finished matches.`);
+  await createSyncLog(
+    "ok",
+    knockoutOnly
+      ? `Synced ${fixtures} knockout fixtures and updated ${updated} finished matches.`
+      : `Synced ${fixtures} fixtures and updated ${updated} finished matches.`
+  );
 
-  return { updated, skipped: false };
+  return { fixtures, updated, skipped: false };
 }

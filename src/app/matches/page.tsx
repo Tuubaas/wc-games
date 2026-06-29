@@ -2,6 +2,10 @@ import { LeagueType, MatchStage } from "@prisma/client";
 import { ChevronDown, Lock } from "lucide-react";
 import { savePredictionAction } from "@/lib/actions";
 import { prisma } from "@/lib/db";
+import {
+  areKnockoutPredictionsReopened,
+  isKnockoutStage
+} from "@/lib/knockout-predictions";
 import { getUserTimeZone } from "@/lib/server-time-zone";
 import { requireUser } from "@/lib/session";
 import { formatMatchDayLabel, formatTime, isMatchLocked, matchLockTime } from "@/lib/time";
@@ -53,24 +57,26 @@ function statusBadge(status: string) {
 export default async function MatchesPage() {
   const user = await requireUser({ nextPath: "/matches" });
   const timeZone = await getUserTimeZone();
-  const [matches, leagueMemberships, firstGroupMatch] = await Promise.all([
-    prisma.match.findMany({
-      include: {
-        homeTeam: true,
-        awayTeam: true,
-        predictions: { where: { userId: user.id }, take: 1 }
-      },
-      orderBy: { kickoffAt: "asc" }
-    }),
-    prisma.leagueMember.findMany({
-      where: { userId: user.id },
-      select: { league: { select: { type: true } } }
-    }),
-    prisma.match.findFirst({
-      where: { stage: MatchStage.GROUP },
-      orderBy: { kickoffAt: "asc" }
-    })
-  ]);
+  const [matches, leagueMemberships, firstGroupMatch, knockoutPredictionsReopened] =
+    await Promise.all([
+      prisma.match.findMany({
+        include: {
+          homeTeam: true,
+          awayTeam: true,
+          predictions: { where: { userId: user.id }, take: 1 }
+        },
+        orderBy: { kickoffAt: "asc" }
+      }),
+      prisma.leagueMember.findMany({
+        where: { userId: user.id },
+        select: { league: { select: { type: true } } }
+      }),
+      prisma.match.findFirst({
+        where: { stage: MatchStage.GROUP },
+        orderBy: { kickoffAt: "asc" }
+      }),
+      areKnockoutPredictionsReopened()
+    ]);
   const classicGroupLockAt = firstGroupMatch
     ? matchLockTime(firstGroupMatch.kickoffAt)
     : null;
@@ -162,9 +168,16 @@ export default async function MatchesPage() {
       ) : (
         <div className="mt-10 space-y-10">
           {Array.from(groups.entries()).map(([day, dayMatches]) => {
-            const hasEditableMatch = dayMatches.some(
-              (match) => !isMatchLocked(match.kickoffAt)
-            );
+            const hasEditableMatch = dayMatches.some((match) => {
+              const knockoutReopened =
+                knockoutPredictionsReopened &&
+                isKnockoutStage(match.stage) &&
+                match.status === "SCHEDULED";
+              return (
+                Boolean(match.homeTeam && match.awayTeam) &&
+                (!isMatchLocked(match.kickoffAt) || knockoutReopened)
+              );
+            });
 
             return (
               <details key={day} open={hasEditableMatch} className="group">
@@ -186,7 +199,11 @@ export default async function MatchesPage() {
                   <CardBody className="divide-y divide-[--color-border] !px-0 !pb-0">
                     {dayMatches.map((match) => {
                       const prediction = match.predictions[0];
-                      const locked = isMatchLocked(match.kickoffAt);
+                      const knockoutReopened =
+                        knockoutPredictionsReopened &&
+                        isKnockoutStage(match.stage) &&
+                        match.status === "SCHEDULED";
+                      const locked = isMatchLocked(match.kickoffAt) && !knockoutReopened;
                       const matchLockAt = matchLockTime(match.kickoffAt);
                       const classicFrozen =
                         hasClassicLeague &&
