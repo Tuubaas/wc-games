@@ -35,6 +35,7 @@ import {
 } from "@/lib/tournament-picks";
 import {
   syncFootballDataKnockoutFixtures,
+  syncFootballDataKnockoutFixturesOnly,
   syncFootballDataResults
 } from "@/lib/results-sync";
 
@@ -511,6 +512,18 @@ export async function syncKnockoutFixturesAction() {
   }
   revalidateScoreViews();
   redirect("/admin?knockoutSync=ok");
+}
+
+export async function syncKnockoutFixturesOnlyAction() {
+  await requireSiteAdmin("/admin");
+  try {
+    await syncFootballDataKnockoutFixturesOnly();
+  } catch {
+    revalidateScoreViews();
+    redirect("/admin?knockoutFixtureSync=failed");
+  }
+  revalidateScoreViews();
+  redirect("/admin?knockoutFixtureSync=ok");
 }
 
 export async function freezeClassicSnapshotsAction() {

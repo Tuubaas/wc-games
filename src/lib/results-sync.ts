@@ -12,7 +12,7 @@ const footballDataTeamSchema = z
   .nullable()
   .optional();
 
-const footballDataFullTimeScoreSchema = z
+const footballDataScorePartSchema = z
   .object({
     away: z.number().int().nullable().optional(),
     awayTeam: z.number().int().nullable().optional(),
@@ -32,7 +32,10 @@ const footballDataMatchSchema = z.object({
   awayTeam: footballDataTeamSchema,
   score: z
     .object({
-      fullTime: footballDataFullTimeScoreSchema
+      extraTime: footballDataScorePartSchema,
+      fullTime: footballDataScorePartSchema,
+      penalties: footballDataScorePartSchema,
+      regularTime: footballDataScorePartSchema
     })
     .nullable()
     .optional()
@@ -52,7 +55,7 @@ const footballDataPayloadSchema = z.object({
 
 type FootballDataTeam = z.infer<typeof footballDataTeamSchema>;
 type FootballDataMatch = z.infer<typeof footballDataMatchSchema>;
-type FootballDataFullTimeScore = z.infer<typeof footballDataFullTimeScoreSchema>;
+type FootballDataScorePart = z.infer<typeof footballDataScorePartSchema>;
 
 class LoggedSyncError extends Error {}
 
@@ -93,10 +96,29 @@ function mapStage(stage?: string | null): MatchStage {
   }
 }
 
-function fullTimeScore(fullTime: FootballDataFullTimeScore) {
+function scorePart(score: FootballDataScorePart) {
   return {
-    away: fullTime?.away ?? fullTime?.awayTeam ?? null,
-    home: fullTime?.home ?? fullTime?.homeTeam ?? null
+    away: score?.away ?? score?.awayTeam ?? null,
+    home: score?.home ?? score?.homeTeam ?? null
+  };
+}
+
+function scoreAfter90Minutes(score: FootballDataMatch["score"]) {
+  const regularTime = scorePart(score?.regularTime);
+  if (typeof regularTime.home === "number" && typeof regularTime.away === "number") {
+    return regularTime;
+  }
+
+  const fullTime = scorePart(score?.fullTime);
+  if (typeof fullTime.home !== "number" || typeof fullTime.away !== "number") {
+    return { away: null, home: null };
+  }
+
+  const extraTime = scorePart(score?.extraTime);
+  const penalties = scorePart(score?.penalties);
+  return {
+    away: fullTime.away - (extraTime.away ?? 0) - (penalties.away ?? 0),
+    home: fullTime.home - (extraTime.home ?? 0) - (penalties.home ?? 0)
   };
 }
 
@@ -237,18 +259,18 @@ async function mergeTeamIntoCanonicalTeam({
   });
 }
 
-async function upsertMatch(item: FootballDataMatch) {
+async function upsertMatch(item: FootballDataMatch, { includeResults = true } = {}) {
   const externalId = String(item.id);
   const homeTeam = await upsertTeam(item.homeTeam);
   const awayTeam = await upsertTeam(item.awayTeam);
   const status = mapStatus(item.status);
   const kickoffAt = new Date(item.utcDate);
   const stage = mapStage(item.stage);
-  const fullTime = fullTimeScore(item.score?.fullTime);
-  const hasFullTimeScore =
+  const score90 = scoreAfter90Minutes(item.score);
+  const hasScore90 =
     status === MatchStatus.FINISHED &&
-    typeof fullTime?.home === "number" &&
-    typeof fullTime?.away === "number";
+    typeof score90.home === "number" &&
+    typeof score90.away === "number";
   const matchData = {
     externalId,
     kickoffAt,
@@ -260,10 +282,11 @@ async function upsertMatch(item: FootballDataMatch) {
   const resultData = {
     ...matchData,
     status,
-    homeScore90: hasFullTimeScore ? fullTime.home : undefined,
-    awayScore90: hasFullTimeScore ? fullTime.away : undefined,
-    resultSource: hasFullTimeScore ? FOOTBALL_DATA_RESULT_SOURCE : undefined
+    homeScore90: hasScore90 ? score90.home : undefined,
+    awayScore90: hasScore90 ? score90.away : undefined,
+    resultSource: hasScore90 ? FOOTBALL_DATA_RESULT_SOURCE : undefined
   };
+  const data = includeResults ? resultData : matchData;
 
   const existing = await prisma.match.findUnique({
     where: { externalId }
@@ -278,24 +301,29 @@ async function upsertMatch(item: FootballDataMatch) {
     });
 
     if (seededDuplicate) {
+      const canUpdateResult = includeResults && existing.resultSource !== "admin";
       return mergeExternalMatchIntoSeededMatch({
         existingExternalMatchId: existing.id,
-        resultData,
+        matchData: canUpdateResult ? resultData : matchData,
         seededMatchId: seededDuplicate.id,
-        updateResult: existing.resultSource !== "admin"
+        shouldRecalculate:
+          canUpdateResult &&
+          hasScore90 &&
+          resultData.resultSource === FOOTBALL_DATA_RESULT_SOURCE
       });
     }
 
-    if (existing.resultSource === "admin") {
+    if (includeResults && existing.resultSource === "admin") {
       return { match: existing, shouldRecalculate: false };
     }
 
     return {
       match: await prisma.match.update({
         where: { id: existing.id },
-        data: resultData
+        data
       }),
-      shouldRecalculate: hasFullTimeScore && didResultChange(existing, resultData)
+      shouldRecalculate:
+        includeResults && hasScore90 && didResultChange(existing, resultData)
     };
   }
 
@@ -326,15 +354,16 @@ async function upsertMatch(item: FootballDataMatch) {
     return {
       match: await prisma.match.update({
         where: { id: seededMatch.id },
-        data: resultData
+        data
       }),
-      shouldRecalculate: hasFullTimeScore && didResultChange(seededMatch, resultData)
+      shouldRecalculate:
+        includeResults && hasScore90 && didResultChange(seededMatch, resultData)
     };
   }
 
   return {
-    match: await prisma.match.create({ data: resultData }),
-    shouldRecalculate: hasFullTimeScore
+    match: await prisma.match.create({ data }),
+    shouldRecalculate: includeResults && hasScore90
   };
 }
 
@@ -425,12 +454,12 @@ function candidateScore(
 
 async function mergeExternalMatchIntoSeededMatch({
   existingExternalMatchId,
-  resultData,
+  matchData,
   seededMatchId,
-  updateResult
+  shouldRecalculate
 }: {
   existingExternalMatchId: string;
-  resultData: {
+  matchData: {
     awayScore90?: number | null;
     awayTeamId?: string;
     externalId: string;
@@ -440,10 +469,10 @@ async function mergeExternalMatchIntoSeededMatch({
     kickoffAt: Date;
     resultSource?: string;
     stage: MatchStage;
-    status: MatchStatus;
+    status?: MatchStatus;
   };
   seededMatchId: string;
-  updateResult: boolean;
+  shouldRecalculate: boolean;
 }) {
   const match = await prisma.$transaction(async (tx) => {
     const [existingPredictions, existingClassicPredictions] = await Promise.all([
@@ -496,22 +525,13 @@ async function mergeExternalMatchIntoSeededMatch({
 
     return tx.match.update({
       where: { id: seededMatchId },
-      data: updateResult
-        ? resultData
-        : {
-            externalId: resultData.externalId,
-            kickoffAt: resultData.kickoffAt,
-            stage: resultData.stage,
-            groupName: resultData.groupName,
-            homeTeamId: resultData.homeTeamId,
-            awayTeamId: resultData.awayTeamId
-          }
+      data: matchData
     });
   });
 
   return {
     match,
-    shouldRecalculate: updateResult && resultData.resultSource === FOOTBALL_DATA_RESULT_SOURCE
+    shouldRecalculate
   };
 }
 
@@ -533,9 +553,15 @@ export async function syncFootballDataKnockoutFixtures() {
   return syncFootballDataMatches({ knockoutOnly: true });
 }
 
+export async function syncFootballDataKnockoutFixturesOnly() {
+  return syncFootballDataMatches({ includeResults: false, knockoutOnly: true });
+}
+
 async function syncFootballDataMatches({
+  includeResults = true,
   knockoutOnly = false
 }: {
+  includeResults?: boolean;
   knockoutOnly?: boolean;
 } = {}) {
   try {
@@ -586,7 +612,9 @@ async function syncFootballDataMatches({
 
     for (const item of matches) {
       try {
-        const { match, shouldRecalculate } = await upsertMatch(item);
+        const { match, shouldRecalculate } = await upsertMatch(item, {
+          includeResults
+        });
         fixtures += 1;
 
         if (shouldRecalculate) {
@@ -609,8 +637,12 @@ async function syncFootballDataMatches({
     const scope = knockoutOnly ? "knockout fixtures" : "fixtures";
     const message =
       failed > 0
-        ? `Synced ${fixtures} ${scope}, updated ${updated} finished matches, failed ${failed}: ${failureDetails.join(" | ")}`
-        : `Synced ${fixtures} ${scope} and updated ${updated} finished matches.`;
+        ? includeResults
+          ? `Synced ${fixtures} ${scope}, updated ${updated} finished matches, failed ${failed}: ${failureDetails.join(" | ")}`
+          : `Synced ${fixtures} ${scope} without results, failed ${failed}: ${failureDetails.join(" | ")}`
+        : includeResults
+        ? `Synced ${fixtures} ${scope} and updated ${updated} finished matches.`
+        : `Synced ${fixtures} ${scope} without results.`;
 
     await createSyncLog(failed > 0 ? "failed" : "ok", message.slice(0, 500));
 

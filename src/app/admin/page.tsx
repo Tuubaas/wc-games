@@ -19,6 +19,7 @@ import {
   setTournamentWinnerAction,
   setTournamentPicksReopenedAction,
   syncKnockoutFixturesAction,
+  syncKnockoutFixturesOnlyAction,
   syncResultsAction,
   updateAllMatchResultsAction
 } from "@/lib/actions";
@@ -53,6 +54,7 @@ export default async function AdminPage({
     candidates?: string;
     created?: string;
     freeze?: string;
+    knockoutFixtureSync?: string;
     knockoutSync?: string;
     sync?: string;
   }>;
@@ -62,6 +64,10 @@ export default async function AdminPage({
   const knockoutSyncStatus =
     params?.knockoutSync === "ok" || params?.knockoutSync === "failed"
       ? params.knockoutSync
+      : null;
+  const knockoutFixtureSyncStatus =
+    params?.knockoutFixtureSync === "ok" || params?.knockoutFixtureSync === "failed"
+      ? params.knockoutFixtureSync
       : null;
   const freezeStatus =
     params?.freeze === "ok" || params?.freeze === "skipped" ? params.freeze : null;
@@ -178,8 +184,23 @@ export default async function AdminPage({
           </Badge>
           <p className="mt-2 text-sm text-[--color-muted]">
             {knockoutSyncStatus === "ok"
-              ? "Knockout fixture details were fetched. Latest details are in the sync log."
+              ? "Knockout fixtures and results were fetched. Latest details are in the sync log."
               : "Knockout fixture sync failed. Check the sync log below for the exact error."}
+          </p>
+        </div>
+      ) : null}
+
+      {knockoutFixtureSyncStatus === "ok" || knockoutFixtureSyncStatus === "failed" ? (
+        <div className="mt-6 rounded-md border border-[--color-border] bg-[--color-surface] px-4 py-3">
+          <Badge tone={knockoutFixtureSyncStatus === "ok" ? "accent" : "danger"}>
+            {knockoutFixtureSyncStatus === "ok"
+              ? "Knockout fixtures synced"
+              : "Knockout fixture sync failed"}
+          </Badge>
+          <p className="mt-2 text-sm text-[--color-muted]">
+            {knockoutFixtureSyncStatus === "ok"
+              ? "Knockout fixture details were fetched without changing results or points."
+              : "Fixture-only sync failed. Check the sync log below for the exact error."}
           </p>
         </div>
       ) : null}
@@ -312,12 +333,20 @@ export default async function AdminPage({
             <p className="mb-4 text-sm text-[--color-muted]">
               Fetch knockout fixture teams and kickoffs from football-data.
             </p>
-            <form action={syncKnockoutFixturesAction}>
-              <Button type="submit" variant="secondary">
-                <RefreshCcw size={13} />
-                Sync knockout games
-              </Button>
-            </form>
+            <div className="flex flex-wrap gap-2">
+              <form action={syncKnockoutFixturesOnlyAction}>
+                <Button type="submit" variant="secondary">
+                  <RefreshCcw size={13} />
+                  Sync games only
+                </Button>
+              </form>
+              <form action={syncKnockoutFixturesAction}>
+                <Button type="submit" variant="secondary">
+                  <RefreshCcw size={13} />
+                  Sync games + results
+                </Button>
+              </form>
+            </div>
           </CardBody>
         </Card>
 

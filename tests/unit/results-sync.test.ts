@@ -128,4 +128,138 @@ describe("syncFootballDataResults", () => {
       })
     });
   });
+
+  it("uses regular-time scores when football-data provides them", async () => {
+    recalculateMatchPoints.mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            filters: { season: 2026 },
+            matches: [
+              {
+                id: 990001,
+                utcDate: existingMatch.kickoffAt.toISOString(),
+                status: "FINISHED",
+                stage: "LAST_16",
+                group: null,
+                homeTeam: { id: 111001, name: homeTeam.name, tla: homeTeam.fifaCode },
+                awayTeam: { id: 111002, name: awayTeam.name, tla: awayTeam.fifaCode },
+                score: {
+                  regularTime: { homeTeam: 2, awayTeam: 1 },
+                  extraTime: { homeTeam: 1, awayTeam: 0 },
+                  fullTime: { homeTeam: 3, awayTeam: 1 }
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      })
+    );
+    const { syncFootballDataResults } = await import("@/lib/results-sync");
+
+    await syncFootballDataResults();
+
+    expect(prisma.match.update).toHaveBeenCalledWith({
+      where: { id: existingMatch.id },
+      data: expect.objectContaining({
+        homeScore90: 2,
+        awayScore90: 1
+      })
+    });
+  });
+
+  it("derives 90-minute scores by subtracting extra time and penalties", async () => {
+    recalculateMatchPoints.mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            filters: { season: 2026 },
+            matches: [
+              {
+                id: 990001,
+                utcDate: existingMatch.kickoffAt.toISOString(),
+                status: "FINISHED",
+                stage: "LAST_16",
+                group: null,
+                homeTeam: { id: 111001, name: homeTeam.name, tla: homeTeam.fifaCode },
+                awayTeam: { id: 111002, name: awayTeam.name, tla: awayTeam.fifaCode },
+                score: {
+                  fullTime: { homeTeam: 6, awayTeam: 5 },
+                  extraTime: { homeTeam: 1, awayTeam: 1 },
+                  penalties: { homeTeam: 3, awayTeam: 2 }
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      })
+    );
+    const { syncFootballDataResults } = await import("@/lib/results-sync");
+
+    await syncFootballDataResults();
+
+    expect(prisma.match.update).toHaveBeenCalledWith({
+      where: { id: existingMatch.id },
+      data: expect.objectContaining({
+        homeScore90: 2,
+        awayScore90: 2
+      })
+    });
+  });
+
+  it("syncs knockout fixtures without results or point recalculation", async () => {
+    recalculateMatchPoints.mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            filters: { season: 2026 },
+            matches: [
+              {
+                id: 990001,
+                utcDate: existingMatch.kickoffAt.toISOString(),
+                status: "FINISHED",
+                stage: "LAST_16",
+                group: null,
+                homeTeam: { id: 111001, name: homeTeam.name, tla: homeTeam.fifaCode },
+                awayTeam: { id: 111002, name: awayTeam.name, tla: awayTeam.fifaCode },
+                score: { fullTime: { homeTeam: 4, awayTeam: 2 } }
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      })
+    );
+    const { syncFootballDataKnockoutFixturesOnly } = await import("@/lib/results-sync");
+
+    const result = await syncFootballDataKnockoutFixturesOnly();
+
+    expect(result.updated).toBe(0);
+    expect(recalculateMatchPoints).not.toHaveBeenCalled();
+    expect(prisma.match.update).toHaveBeenCalledWith({
+      where: { id: existingMatch.id },
+      data: {
+        externalId: "990001",
+        kickoffAt: existingMatch.kickoffAt,
+        stage: MatchStage.ROUND_OF_16,
+        groupName: undefined,
+        homeTeamId: homeTeam.id,
+        awayTeamId: awayTeam.id
+      }
+    });
+    expect(prisma.resultSyncLog.create).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({
+        status: "ok",
+        message: "Synced 1 knockout fixtures without results."
+      })
+    });
+  });
 });
